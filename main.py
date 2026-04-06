@@ -42,8 +42,8 @@ def save_artifact(source_code: str, bpb: float, step: int):
     shutil.copy(filename, "artifacts/train_gpt_best_latest.py")
     logger.info(f"💾 Saved new artifact to {filename}")
 
-def run_perpetual_loop():
-    logger.info("🚀 Starting AutoResearch-RL Perpetual Loop")
+def run_perpetual_loop(max_iterations: int = 1):
+    logger.info(f"🚀 Starting AutoResearch-RL Perpetual Loop (Max Iterations: {max_iterations})")
 
     # Initialize Core Components
     orchestrator = Orchestrator()
@@ -57,7 +57,6 @@ def run_perpetual_loop():
     logger.info("Loaded Golden Seed.")
 
     iteration = 1
-    max_iterations = 1 # Run for 3 iterations to test the loop
 
     while iteration <= max_iterations:
         logger.info(f"\n{'='*50}\n🔄 Starting Iteration {iteration}\n{'='*50}")
@@ -133,4 +132,4 @@ def run_perpetual_loop():
     logger.info("🛑 Simulation Limit Reached. Terminating AutoResearch-RL Loop.")
 
 if __name__ == "__main__":
-    run_perpetual_loop()
+    run_perpetual_loop(max_iterations=1)

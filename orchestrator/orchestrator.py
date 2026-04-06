@@ -109,23 +109,17 @@ class Orchestrator:
                 error_message="CapacityLimitExceeded"
             )
 
-        # 3. Simulate Docker / GPU execution (Mock)
-        logger.info(f"Job {job_id} passed pre-checks. Dispatching to GPU cluster...")
-        result = self._mock_gpu_execution(job_id, source_code)
+        # 3. Passed Pre-checks (Ready for GPU Dispatcher)
+        # Note: The actual dispatch is handled by the GPUDispatcher (orchestrator/docker_runner.py)
+        # which manages the subprocess/docker container and streams telemetry.
+        # This method is now strictly for static validation before wasting compute.
+        logger.info(f"Job {job_id} passed pre-checks.")
 
-        return result
-
-    def _mock_gpu_execution(self, job_id: str, source_code: str) -> EvaluationResult:
-        """
-        Mocks the execution on a GPU cluster.
-        """
-        # Here we would normally build a docker container, deploy to 8xH100 node, and monitor SPRT.
-        # For now, we simulate a successful run with dummy metrics.
         return EvaluationResult(
             job_id=job_id,
-            status="COMPLETED",
-            final_bpb=0.95,
-            artifact_size=15_500_000,
+            status="PRECHECKS_PASSED",
+            final_bpb=None,
+            artifact_size=estimated_size,
             error_message=None
         )
 
