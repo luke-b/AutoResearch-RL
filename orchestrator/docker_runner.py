@@ -45,33 +45,10 @@ class GPUDispatcher:
 
         script_path = self._write_script_to_file(job_id, source_code)
 
-        # MOCK IMPLEMENTATION:
-        # Instead of actually running Docker/Slurm here, we simulate a subprocess that prints telemetry
-        # which we parse to feed the SPRT filter.
-
-        # Create a mock training script that streams JSON telemetry
-        mock_runner_path = f"/tmp/mock_runner_{job_id}.py"
-        mock_script_content = """
-import time, json, sys, math
-
-def run():
-    print(json.dumps({"status": "starting"}), flush=True)
-    for step in range(50, 1000, 50):
-        time.sleep(0.05) # Simulate training time
-        loss = 2.5 * (step)**(-0.4) + 0.9  # Fake loss curve
-        print(json.dumps({"step": step, "loss": loss}), flush=True)
-
-    print(json.dumps({"status": "completed", "final_bpb": 0.95}), flush=True)
-
-if __name__ == '__main__':
-    run()
-"""
-        with open(mock_runner_path, "w") as f:
-            f.write(mock_script_content)
-
-        # Launch the subprocess
+        # We execute the actual candidate script via subprocess
+        # In a real environment, this would build a container and run it on a GPU node
         process = subprocess.Popen(
-            ["python3", mock_runner_path],
+            ["python3", script_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True
@@ -120,8 +97,6 @@ if __name__ == '__main__':
             # Cleanup
             if os.path.exists(script_path):
                 os.remove(script_path)
-            if os.path.exists(mock_runner_path):
-                os.remove(mock_runner_path)
 
             del self._active_processes[job_id]
 
@@ -133,6 +108,6 @@ if __name__ == '__main__':
             job_id=job_id,
             status=status,
             final_bpb=final_bpb,
-            artifact_size=15_000_000, # Simulated
+            artifact_size=15_000_000, # Handled by orchestrator limit simulation
             error_message=error_message
         )

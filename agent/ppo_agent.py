@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Dict, Any, List, Optional
 import re
+import os
 
 logger = logging.getLogger("PPO_Agent")
 
@@ -89,7 +90,15 @@ class PPOMetaAgent:
     """
     def __init__(self, system_prompt: str = "program.md"):
         self.system_prompt = system_prompt
-        # In a real system, initialize the LLM client here (e.g., OpenAI, Anthropic, or local vLLM)
+        self.api_key = os.environ.get("OPENAI_API_KEY")
+
+        if self.api_key:
+            logger.info("OpenAI API Key found. Real LLM integration activated.")
+            import openai
+            self.client = openai.OpenAI(api_key=self.api_key)
+        else:
+            logger.info("No OpenAI API Key found. Operating in MOCK mode.")
+            self.client = None
 
     def _construct_prompt(self, current_best_code: str, history: List[Dict[str, Any]], telemetry: Dict[str, Any]) -> str:
         """
@@ -115,22 +124,39 @@ class PPOMetaAgent:
         """
         prompt = self._construct_prompt(current_best_code, history, telemetry)
 
-        # MOCK LLM CALL
         logger.info("Querying Meta-Learner LLM for next action...")
-        # Simulate LLM generating a patch to change MLP expansion from 3x to 4x
-        mock_llm_response = '''
-        ```json
-        [
-            {
-                "search": "hidden_dim = 3 * config.n_embd",
-                "replace": "hidden_dim = 4 * config.n_embd"
-            }
-        ]
-        ```
-        '''
+
+        llm_response = ""
+        if self.client:
+            # ACTUAL LLM CALL
+            try:
+                response = self.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": "You are a code-mutating PPO agent optimized to output JSON diff patches."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7
+                )
+                llm_response = response.choices[0].message.content
+            except Exception as e:
+                logger.error(f"OpenAI API call failed: {e}")
+                return current_best_code
+        else:
+            # MOCK LLM CALL
+            llm_response = '''
+            ```json
+            [
+                {
+                    "search": "hidden_dim = 3 * config.n_embd",
+                    "replace": "hidden_dim = 4 * config.n_embd"
+                }
+            ]
+            ```
+            '''
 
         try:
-            patches = DiffParser.parse_llm_json(mock_llm_response)
+            patches = DiffParser.parse_llm_json(llm_response)
             new_code = current_best_code
             for patch in patches:
                 new_code = DiffParser.apply_patch(new_code, patch["search"], patch["replace"])

@@ -57,6 +57,7 @@ def run_perpetual_loop():
         # 3. Security Audit (Causality)
         causality_leak = check_causality_leak(candidate_code)
 
+        sprt = None
         # 4. Orchestrator Pre-checks (AST & Capacity)
         if causality_leak:
             logger.warning("Causality Audit Failed. Skipping GPU dispatch.")
@@ -69,7 +70,7 @@ def run_perpetual_loop():
             if not orchestrator.run_smoke_test(candidate_code):
                  # Submit job just to get the formatted error EvaluationResult
                  result = orchestrator.submit_job(candidate_code)
-            elif orchestrator.simulate_compression_and_capacity(candidate_code) > 16_000_000:
+            elif orchestrator.simulate_compression_and_capacity(candidate_code, num_parameters_int6=10_000_000, num_parameters_bf16=2_000_000) > 16_000_000:
                  result = orchestrator.submit_job(candidate_code)
             else:
                 # 5. Dispatch to GPU Cluster with SPRT filtering
@@ -84,7 +85,11 @@ def run_perpetual_loop():
                 result = dispatcher.dispatch(job_id, candidate_code, num_parameters=12_000_000)
 
         # 6. Environment Step (Calculate Reward & Update Memory)
-        step_info = env.step(result, action_patch="MOCK_PATCH_APPLIED", causality_leak=causality_leak)
+        abort_step = 0
+        if result.status == "ABORTED" and result.error_message == "SPRT_EARLY_STOPPING" and sprt:
+             abort_step = len(sprt.step_history) * 10
+
+        step_info = env.step(result, action_patch="MOCK_PATCH_APPLIED", causality_leak=causality_leak, abort_step=abort_step)
 
         logger.info(f"Iteration Result -> Status: {result.status}, BPB: {result.final_bpb}, Reward: {step_info['reward']:.4f}")
 

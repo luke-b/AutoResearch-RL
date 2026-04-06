@@ -49,37 +49,38 @@ class Orchestrator:
             logger.error(f"Smoke test failed: Syntax error in generated code - {e}")
             return False
 
-    def simulate_compression_and_capacity(self, source_code: str, num_parameters: int = 124_000_000) -> int:
+    def simulate_compression_and_capacity(
+        self,
+        source_code: str,
+        num_parameters_int6: int = 10_000_000,
+        num_parameters_bf16: int = 2_000_000
+    ) -> int:
         """
         Simulates the artifact size limit (16MB).
-        Includes the compressed source code and the simulated size of int6 quantized weights.
+        Includes the compressed source code and the size of heterogeneous weights.
         """
-        # Simulate source code compression
+        # 1. Source code compression
         if ZSTD_AVAILABLE:
             compressor = zstd.ZstdCompressor(level=22)
             compressed_code = compressor.compress(source_code.encode('utf-8'))
             code_size = len(compressed_code)
         else:
-            # Fallback estimation if zstandard is not installed
             code_size = len(source_code.encode('utf-8')) // 3
 
-        # Simulate Int6 parameter size
-        # 6 bits per parameter = 0.75 bytes per parameter
-        # Typically weights are compressed further, but we assume raw int6 + scales overhead
-        # Let's say 0.75 bytes + some overhead for FP16 scales.
-        # This is a highly simplified simulation. The real system would get actual artifact size from the node.
-        bytes_per_param = 6 / 8.0
-        weights_size = int(num_parameters * bytes_per_param)
+        # 2. Parameter size calculation
+        # Int6 weights (6 bits = 0.75 bytes) + minor overhead for FP16 scales
+        int6_bytes_per_param = 0.75
+        size_int6 = int(num_parameters_int6 * int6_bytes_per_param)
 
-        # In reality, tied embeddings might be FP16/BF16, so we add an offset
-        # Let's assume tied embeddings are ~38.5M parameters in BF16 (2 bytes) = 77MB, which breaks 16MB.
-        # So the agent MUST figure out how to fit it. For this simulation, we'll just use a baseline.
+        # BF16/FP16 weights (e.g., tied embeddings, LoRA deltas, LayerNorms) = 2 bytes
+        bf16_bytes_per_param = 2.0
+        size_bf16 = int(num_parameters_bf16 * bf16_bytes_per_param)
 
-        total_size = code_size + weights_size
-        logger.debug(f"Simulated artifact size: {total_size} bytes (Code: {code_size}, Weights: {weights_size})")
+        total_size = code_size + size_int6 + size_bf16
+        logger.debug(f"Simulated artifact size: {total_size} bytes (Code: {code_size}, Int6: {size_int6}, BF16: {size_bf16})")
         return total_size
 
-    def submit_job(self, source_code: str, num_parameters: int = 12_000_000) -> EvaluationResult:
+    def submit_job(self, source_code: str, num_parameters_int6: int = 10_000_000, num_parameters_bf16: int = 2_000_000) -> EvaluationResult:
         """
         Submits a code mutation for evaluation.
         """
@@ -97,7 +98,7 @@ class Orchestrator:
             )
 
         # 2. Capacity Constraint Check
-        estimated_size = self.simulate_compression_and_capacity(source_code, num_parameters=num_parameters)
+        estimated_size = self.simulate_compression_and_capacity(source_code, num_parameters_int6, num_parameters_bf16)
         if estimated_size > MAX_ARTIFACT_SIZE_BYTES:
             logger.warning(f"Job {job_id} aborted: Estimated size {estimated_size} exceeds {MAX_ARTIFACT_SIZE_BYTES} bytes.")
             return EvaluationResult(
@@ -134,5 +135,5 @@ if __name__ == "__main__":
     dummy_code = "print('Hello, AutoResearch-RL!')\n" * 100
 
     # Run a test job
-    result = orchestrator.submit_job(dummy_code, num_parameters=15_000_000)
+    result = orchestrator.submit_job(dummy_code, num_parameters_int6=10_000_000, num_parameters_bf16=2_000_000)
     print(f"Result: {result}")

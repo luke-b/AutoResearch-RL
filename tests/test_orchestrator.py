@@ -15,7 +15,7 @@ def test_smoke_test_fail():
 
 def test_capacity_simulation():
     orc = Orchestrator()
-    # 12M parameters in int6 should be ~9MB
-    size = orc.simulate_compression_and_capacity("print('hi')", num_parameters=12_000_000)
+    # 12M parameters total, mostly int6 should be ~9MB
+    size = orc.simulate_compression_and_capacity("print('hi')", num_parameters_int6=10_000_000, num_parameters_bf16=2_000_000)
     assert size < 16_000_000
     assert size > 8_000_000

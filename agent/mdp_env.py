@@ -26,26 +26,30 @@ class AutoResearchEnv:
         self.p_waste = 2.0    # Penalty for OOM or capacity limit exceeded
         self.p_causality = 100.0
 
-    def calculate_reward(self, result: EvaluationResult, is_novel: bool = True, causality_leak: bool = False) -> float:
+    def calculate_reward(self, result: EvaluationResult, is_novel: bool = True, causality_leak: bool = False, abort_step: int = 0, total_expected_steps: int = 1000) -> float:
         """
         Calculates the reward r_t for a given action (diff patch execution).
 
         Formula: r_t = Δbpb_t + r_novelty - p_syntax - p_waste - p_causality
         """
         reward = 0.0
+        reward_components = {}
 
         # 1. Causality check
         if causality_leak:
             logger.error("Causality leak detected! Applying maximum penalty.")
-            return -self.p_causality
+            reward_components["causality"] = -self.p_causality
+            return -self.p_causality, reward_components
 
         # 2. Syntax / Compilation failure
         if result.status == "ABORTED" and result.error_message == "SyntaxError":
-            return -self.p_syntax
+            reward_components["syntax"] = -self.p_syntax
+            return -self.p_syntax, reward_components
 
         # 3. Constraint waste (OOM, 16MB limit, etc.)
         if result.status == "ABORTED" and result.error_message == "CapacityLimitExceeded":
-            return -self.p_waste
+            reward_components["capacity"] = -self.p_waste
+            return -self.p_waste, reward_components
 
         # 4. Improvement metric (Δbpb_t)
         # We want to minimize BPB, so a lower final_bpb means a positive delta.
@@ -54,31 +58,38 @@ class AutoResearchEnv:
             # Scale to make small improvements meaningful
             delta_bpb = (self.sota_bpb - result.final_bpb) * 10.0
             reward += delta_bpb
+            reward_components["delta_bpb"] = delta_bpb
 
             # Update SOTA if we beat it
             if result.final_bpb < self.sota_bpb:
                 logger.info(f"New SOTA achieved! {result.final_bpb:.4f} < {self.sota_bpb:.4f}")
                 self.sota_bpb = result.final_bpb
         elif result.status == "ABORTED" and result.error_message == "SPRT_EARLY_STOPPING":
-            # Small penalty for wasting GPU time on a bad run, but less than a full crash
-            reward -= 0.5
+            # Penalty for wasting compute. The later we abort, the heavier the penalty.
+            waste_ratio = abort_step / max(1, total_expected_steps)
+            sprt_penalty = -0.5 * (1 + waste_ratio * 2.0) # Up to 3x penalty for late aborts
+            reward += sprt_penalty
+            reward_components["sprt_abort_penalty"] = sprt_penalty
 
         # 5. Novelty Bonus (Epsilon-novelty to prevent deterministic collapse)
         if is_novel:
-            r_novelty = 0.1
+            # Dynamically scale novelty based on how "stuck" we are (e.g. history size)
+            r_novelty = 0.1 + (len(self.history) / 32.0) * 0.1
             reward += r_novelty
+            reward_components["novelty_bonus"] = r_novelty
 
-        return float(reward)
+        logger.info(f"Reward Components: {reward_components}")
+        return float(reward), reward_components
 
-    def step(self, result: EvaluationResult, action_patch: str, causality_leak: bool = False) -> Dict[str, Any]:
+    def step(self, result: EvaluationResult, action_patch: str, causality_leak: bool = False, abort_step: int = 0) -> Dict[str, Any]:
         """
         Simulates one step in the MDP. Agent takes an action (code mutation),
         orchestrator runs it, and env calculates the state transition and reward.
         """
-        # In a real run, we'd compare action_patch against history for novelty
+        # Compare action_patch against history for novelty
         is_novel = action_patch not in [item['patch'] for item in self.history]
 
-        reward = self.calculate_reward(result, is_novel=is_novel, causality_leak=causality_leak)
+        reward, components = self.calculate_reward(result, is_novel=is_novel, causality_leak=causality_leak, abort_step=abort_step)
 
         # Update memory (H_t)
         self.history.append({
@@ -86,7 +97,8 @@ class AutoResearchEnv:
             'patch': action_patch,
             'status': result.status,
             'final_bpb': result.final_bpb,
-            'reward': reward
+            'reward': reward,
+            'components': components
         })
 
         # Keep only K=32 experiments
@@ -98,17 +110,3 @@ class AutoResearchEnv:
             "sota_bpb": self.sota_bpb,
             "memory_size": len(self.history)
         }
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    env = AutoResearchEnv(sota_bpb=1.0)
-
-    # Simulate a good result
-    good_result = EvaluationResult(job_id="test-1", status="COMPLETED", final_bpb=0.98, artifact_size=15_000_000)
-    step_info = env.step(good_result, action_patch="+ def new_layer(): pass")
-    print(f"Good Step Reward: {step_info['reward']}")
-
-    # Simulate a syntax error
-    bad_result = EvaluationResult(job_id="test-2", status="ABORTED", final_bpb=None, artifact_size=0, error_message="SyntaxError")
-    step_info2 = env.step(bad_result, action_patch="- import os")
-    print(f"Syntax Error Reward: {step_info2['reward']}")
