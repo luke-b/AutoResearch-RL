@@ -88,7 +88,7 @@ class PPOMetaAgent:
     """
     The main agent that interacts with the LLM API to generate code mutations based on state.
     """
-    def __init__(self, system_prompt: str = "program.md"):
+    def __init__(self, system_prompt: str = "Minimize BPB under 16MB. Modify architecture hyperparameters within GPTConfig like mlp_expansion, depth_loops, lora_rank, qk_gain_init, and muon_lr."):
         self.system_prompt = system_prompt
         self.api_key = os.environ.get("OPENAI_API_KEY")
 

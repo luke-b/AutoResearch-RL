@@ -2,6 +2,7 @@ import logging
 import time
 import os
 import shutil
+import json
 
 from orchestrator.orchestrator import Orchestrator
 from orchestrator.docker_runner import GPUDispatcher
@@ -12,6 +13,23 @@ from auditor.causality_auditor import check_causality_leak
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("AutoResearch-RL-Main")
+
+def log_experiment_json(iteration: int, job_id: str, patch: str, status: str, bpb: float, reward: float, components: dict, causality_leak: bool, abort_step: int):
+    """Appends structured JSON logs for external analysis/dashboarding."""
+    log_entry = {
+        "timestamp": time.time(),
+        "iteration": iteration,
+        "job_id": job_id,
+        "status": status,
+        "final_bpb": bpb,
+        "reward": reward,
+        "reward_components": components,
+        "causality_leak": causality_leak,
+        "abort_step": abort_step,
+        "patch": patch
+    }
+    with open("experiment_logs.jsonl", "a") as f:
+        f.write(json.dumps(log_entry) + "\n")
 
 def save_artifact(source_code: str, bpb: float, step: int):
     """Saves the current best script to the artifacts directory."""
@@ -58,6 +76,7 @@ def run_perpetual_loop():
         causality_leak = check_causality_leak(candidate_code)
 
         sprt = None
+        job_id = f"job_iter_{iteration}"
         # 4. Orchestrator Pre-checks (AST & Capacity)
         if causality_leak:
             logger.warning("Causality Audit Failed. Skipping GPU dispatch.")
@@ -81,7 +100,6 @@ def run_perpetual_loop():
 
                 dispatcher = GPUDispatcher(sprt_callback=sprt_callback, time_limit_sec=600)
 
-                job_id = f"job_iter_{iteration}"
                 result = dispatcher.dispatch(job_id, candidate_code, num_parameters=12_000_000)
 
         # 6. Environment Step (Calculate Reward & Update Memory)
@@ -89,9 +107,16 @@ def run_perpetual_loop():
         if result.status == "ABORTED" and result.error_message == "SPRT_EARLY_STOPPING" and sprt:
              abort_step = len(sprt.step_history) * 10
 
-        step_info = env.step(result, action_patch="MOCK_PATCH_APPLIED", causality_leak=causality_leak, abort_step=abort_step)
+        applied_patch = "MOCK_PATCH_APPLIED"
+        step_info = env.step(result, action_patch=applied_patch, causality_leak=causality_leak, abort_step=abort_step)
 
         logger.info(f"Iteration Result -> Status: {result.status}, BPB: {result.final_bpb}, Reward: {step_info['reward']:.4f}")
+
+        log_experiment_json(
+            iteration, job_id, applied_patch, result.status,
+            result.final_bpb, step_info['reward'], env.history[-1]['components'],
+            causality_leak, abort_step
+        )
 
         # 7. Update SOTA and Artifacts
         if result.status == "COMPLETED" and result.final_bpb is not None and result.final_bpb < env.sota_bpb:
