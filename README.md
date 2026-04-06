@@ -1,7 +1,7 @@
 # 🧬 AutoResearch-RL: The Perpetual Code Mutator
 
 <div align="center">
-  <img src="https://img.shields.io/badge/Status-MVP_Complete-success?style=for-the-badge" alt="Status">
+  <img src="https://img.shields.io/badge/Status-Operational-success?style=for-the-badge" alt="Status">
   <img src="https://img.shields.io/badge/Architecture-PPO_Agent-purple?style=for-the-badge" alt="Architecture">
   <img src="https://img.shields.io/badge/Hardware-8xH100_SXM-green?style=for-the-badge" alt="Hardware">
 </div>
@@ -99,26 +99,26 @@ All foundational milestones for the AutoResearch-RL framework MVP have been succ
 | Component | Status | Details & Notes |
 | :--- | :---: | :--- |
 | **Directory Structure & APIs** | ✅ **Complete** | Defined in `architecture.md` and `api_doc.md`. Clean separation of concerns. |
-| **CPU Orchestrator** | ✅ **Complete** | Implements AST syntax smoke tests and accurately simulates 16MB size limits using `zstandard`. |
-| **SPRT Early Stopping** | ✅ **Complete** | Implemented using `scipy.optimize.curve_fit`. Successfully extrapolates power-law loss bounds. |
-| **MDP Environment / Reward** | ✅ **Complete** | Reward function precisely implemented (`mdp_env.py`). Maintains the history buffer of 32 experiments and calculates novelty. |
-| **Causality Auditor** | ✅ **Complete** | Uses Python `ast.NodeVisitor` to statically detect forward-looking index slicing and illegal shifting operations. |
-| **Golden Seed (`train_gpt.py`)** | ✅ **Complete** | Fully functional PyTorch baseline featuring simulated Int6 layers, QK-Norm, Depth Recurrence, Muon Optimizer, SWA, and Sliding Window Eval. |
-| **PPO Meta-Agent** | ✅ **Complete** | Ingests the massive MDP state and uses a robust whitespace-insensitive `DiffParser` to safely apply JSON search-and-replace patches. |
-| **GPU Dispatcher** | ✅ **Complete** | Isolates training scripts in subprocesses, monitors JSON streaming telemetry, and executes SPRT aborts. |
-| **Perpetual Loop (`main.py`)**| ✅ **Complete** | Ties all components together into an autonomous 24/7 research cycle that tracks SOTA BPB and saves artifacts. |
+| **CPU Orchestrator** | ✅ **Complete** | Implements AST syntax smoke tests and explicitly calculates precise `zstandard` capacity limits for heterogeneous parameter types. |
+| **SPRT Early Stopping** | ✅ **Complete** | Uses `scipy` covariance matrices for confidence intervals and implements plateau abort detection. |
+| **MDP Environment / Reward** | ✅ **Complete** | Dynamically scales novelty, penalizes late-abort compute waste, and structurally logs components. |
+| **Causality Auditor** | ✅ **Complete** | Employs both recursive AST static analysis and runtime dynamic assertion instrumentation. |
+| **Golden Seed (`train_gpt.py`)** | ✅ **Complete** | Consolidates a hyperparameter search space (`GPTConfig`) atop simulated Int6 layers, QK-Norm, Depth Recurrence, and the Muon Optimizer. |
+| **PPO Meta-Agent** | ✅ **Operational** | Integrates directly with the OpenAI API (`gpt-4o`) via `OPENAI_API_KEY` and utilizes a robust, whitespace-insensitive `DiffParser`. |
+| **GPU Dispatcher** | ✅ **Operational** | Supports an isolated Python subprocess or true `nvidia-docker` distributed execution (`use_docker=True`) via `Dockerfile.cuda`. |
+| **Perpetual Loop (`main.py`)**| ✅ **Operational** | Ties all components into a 24/7 autonomous cycle that actively writes to `experiment_logs.jsonl` and saves SOTA code artifacts. |
 
 ---
 
 ## 🛠️ Operational Guide: Setup, Run, Experiment
 
-Getting started with the AutoResearch-RL MVP is simple. The current iteration uses simulated LLM responses and subprocess-based GPU execution, meaning it can be run on a standard laptop without requiring an 8xH100 cluster.
+Getting started with AutoResearch-RL is simple. The system can run locally on a CPU using subprocess simulations or scale out to a true 8xH100 CUDA Docker environment.
 
 ### 1. Prerequisites
 Ensure you have Python 3.10+ installed. Install the required dependencies to run the system and its test suite:
 
 ```bash
-pip install numpy scipy torch zstandard pytest
+pip install numpy scipy torch zstandard pytest openai
 ```
 
 ### 2. Running the Automated Test Suite
@@ -129,7 +129,7 @@ pytest tests/
 ```
 
 ### 3. Exploring the Golden Seed
-Before running the main loop, you can independently test the highly-optimized `train_gpt.py` seed script to verify its forward/backward pass and Sliding Window Evaluation mechanism:
+Before running the main loop, you can independently test the highly-optimized `train_gpt.py` seed script to verify its forward/backward pass, dynamic causality assertions, and Sliding Window Evaluation mechanism:
 
 ```bash
 python3 seed/train_gpt.py
@@ -150,17 +150,17 @@ python3 main.py
 
 **What to expect during execution:**
 1. The script will load the `train_gpt.py` Golden Seed.
-2. The PPO Agent will mock an LLM call and generate a code mutation (e.g., expanding the MLP layer). The `DiffParser` will apply it robustly.
+2. The PPO Agent will query the LLM (or mock) and generate a code mutation targeting `GPTConfig` hyperparameters. The `DiffParser` will apply it robustly.
 3. The Orchestrator will run an AST syntax check, a `zstandard` capacity check, and the Causality Auditor.
-4. The `GPUDispatcher` will spawn a background process simulating the training run.
+4. The `GPUDispatcher` will spawn a subprocess (or Docker container) simulating the training run.
 5. The `SPRTFilter` will actively monitor the simulated loss stream. If the run is poor, it will instantly ABORT it.
 6. The `AutoResearchEnv` will calculate the complex reward and update its memory buffer.
-7. If a new State-of-the-Art (SOTA) is achieved, the script is saved to the `/artifacts/` directory.
+7. If a new State-of-the-Art (SOTA) is achieved, the script is saved to the `/artifacts/` directory and logged to `experiment_logs.jsonl`.
 
 ### 6. Experimenting & Hacking
-*   **Plug in a Real LLM:** Open `agent/ppo_agent.py` and replace the `mock_llm_response` string inside `generate_action()` with an actual API call to OpenAI (gpt-4o) or Anthropic (Claude 3.5 Sonnet).
-*   **Adjust Constraints:** Open `orchestrator/orchestrator.py` and modify `MAX_ARTIFACT_SIZE_BYTES` or `MAX_TIME_SECONDS` to simulate different competition environments.
-*   **Tweak SPRT Aggressiveness:** In `gpu_cluster/sprt.py`, modify the `margin` or `confidence_level` to see how early stopping impacts the exploration rate of the agent.
+*   **Activate Real LLM Mutations:** Export your OpenAI API key (`export OPENAI_API_KEY="sk-..."`) before running `main.py`. The agent will seamlessly switch from mock patches to querying `gpt-4o`.
+*   **Dockerized GPU Cluster Run:** Open `main.py` and set `use_docker=True` when instantiating the `GPUDispatcher`. Ensure you have built the image via `docker build -t autoresearch-rl-node -f Dockerfile.cuda .` and have `nvidia-docker` installed.
+*   **Analyze Logs:** Review the `experiment_logs.jsonl` file to parse iteration statistics, exact reward distributions, SPRT abort timings, and SOTA BPB drops over time.
 
 ---
 *Built for the pursuit of sub-1.0 BPB.*

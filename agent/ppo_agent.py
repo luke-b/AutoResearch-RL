@@ -3,6 +3,9 @@ import logging
 from typing import Dict, Any, List, Optional
 import re
 import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
 
 logger = logging.getLogger("PPO_Agent")
 
@@ -84,9 +87,39 @@ class DiffParser:
             logger.error(f"Failed to parse LLM patch output: {e}")
             raise ValueError("Invalid JSON patch format")
 
+class PolicyValueNetwork(nn.Module):
+    """
+    Basic PPO Actor-Critic Network.
+    In a fully operational system, this would ingest vectorized state or embeddings of the code.
+    For this MVP, it acts as a structured foundation that learns from scalar environment metrics
+    to output a continuous "temperature/creativity" signal that guides the LLM mutation sampler.
+    """
+    def __init__(self, state_dim=5):
+        super().__init__()
+        # Actor network (Policy)
+        self.actor = nn.Sequential(
+            nn.Linear(state_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+            nn.Sigmoid() # Outputs a scalar representing the "action" (e.g., Temperature for LLM sampling)
+        )
+
+        # Critic network (Value)
+        self.critic = nn.Sequential(
+            nn.Linear(state_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1) # Predicts expected reward (V-value)
+        )
+
+    def forward(self, state):
+        action_mean = self.actor(state)
+        value = self.critic(state)
+        return action_mean, value
+
 class PPOMetaAgent:
     """
     The main agent that interacts with the LLM API to generate code mutations based on state.
+    Integrates a PPO-based Policy/Value network to guide the LLM's creativity and learn from rewards.
     """
     def __init__(self, system_prompt: str = "Minimize BPB under 16MB. Modify architecture hyperparameters within GPTConfig like mlp_expansion, depth_loops, lora_rank, qk_gain_init, and muon_lr."):
         self.system_prompt = system_prompt
@@ -99,6 +132,33 @@ class PPOMetaAgent:
         else:
             logger.info("No OpenAI API Key found. Operating in MOCK mode.")
             self.client = None
+
+        # PPO Learning Infrastructure
+        self.state_dim = 5 # e.g., current_sota, iteration, oom_flag, memory_size, sprt_aborts
+        self.policy_net = PolicyValueNetwork(state_dim=self.state_dim)
+        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=1e-3)
+        self.gamma = 0.99
+        self.eps_clip = 0.2
+
+        # Memory to store PPO rollouts
+        self.rollout_memory = []
+
+    def _extract_vector_state(self, env_history: List[Dict[str, Any]], telemetry: Dict[str, Any]) -> torch.Tensor:
+        """Converts the environment and telemetry into a float tensor for the PPO network."""
+        current_sota = 1.0
+        memory_size = len(env_history)
+        oom_flag = 1.0 if telemetry.get("recent_oom", False) else 0.0
+        iteration = telemetry.get("iteration", 0) / 100.0 # Normalize roughly
+
+        if env_history:
+            # SOTA BPB is implicitly tracked by finding the min in history
+            # Filter out NaNs to prevent tensor explosion
+            valid_bpbs = [e.get("final_bpb") for e in env_history if e.get("final_bpb") is not None and not torch.isnan(torch.tensor(e.get("final_bpb")))]
+            if valid_bpbs:
+                current_sota = min(valid_bpbs)
+
+        state_vec = [current_sota, float(iteration), oom_flag, float(memory_size), 0.0]
+        return torch.tensor(state_vec, dtype=torch.float32)
 
     def _construct_prompt(self, current_best_code: str, history: List[Dict[str, Any]], telemetry: Dict[str, Any]) -> str:
         """
@@ -124,7 +184,26 @@ class PPOMetaAgent:
         """
         prompt = self._construct_prompt(current_best_code, history, telemetry)
 
-        logger.info("Querying Meta-Learner LLM for next action...")
+        # 1. PPO Policy Pass
+        # The actor network learns from past rewards what 'temperature' to sample the LLM at.
+        state_tensor = self._extract_vector_state(history, telemetry)
+        with torch.no_grad():
+            action_mean, state_value = self.policy_net(state_tensor)
+            # Sample action (temperature)
+            dist = torch.distributions.Normal(action_mean, 0.1)
+            action_temp = dist.sample()
+            llm_temperature = torch.clamp(action_temp, 0.1, 1.5).item()
+            log_prob = dist.log_prob(action_temp)
+
+        # Store for PPO update later
+        self.rollout_memory.append({
+            "state": state_tensor,
+            "action": action_temp,
+            "log_prob": log_prob,
+            "value": state_value
+        })
+
+        logger.info(f"Querying Meta-Learner LLM (PPO Guided Temp: {llm_temperature:.2f})...")
 
         llm_response = ""
         if self.client:
@@ -136,7 +215,7 @@ class PPOMetaAgent:
                         {"role": "system", "content": "You are a code-mutating PPO agent optimized to output JSON diff patches."},
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=0.7
+                    temperature=llm_temperature
                 )
                 llm_response = response.choices[0].message.content
             except Exception as e:
@@ -148,8 +227,8 @@ class PPOMetaAgent:
             ```json
             [
                 {
-                    "search": "hidden_dim = 3 * config.n_embd",
-                    "replace": "hidden_dim = 4 * config.n_embd"
+                    "search": "mlp_expansion = 3",
+                    "replace": "mlp_expansion = 4"
                 }
             ]
             ```
@@ -168,25 +247,75 @@ class PPOMetaAgent:
             logger.error(f"Action generation failed during patching: {e}")
             return current_best_code # Fallback to SOTA
 
+    def update_policy(self, final_reward: float):
+        """
+        Performs the PPO network update using the collected rollout and the environment reward.
+        """
+        if not self.rollout_memory:
+            return
+
+        # Guard against NaN rewards breaking the network weights
+        if torch.isnan(torch.tensor(final_reward)):
+            logger.warning("Reward is NaN. Skipping PPO Policy Update.")
+            self.rollout_memory = []
+            return
+
+        # Get latest rollout
+        rollout = self.rollout_memory[-1]
+        state = rollout["state"]
+        action = rollout["action"]
+        old_log_prob = rollout["log_prob"]
+        old_value = rollout["value"]
+
+        # Calculate Advantage (A_t = R_t - V(s_t))
+        reward_tensor = torch.tensor([final_reward], dtype=torch.float32)
+        advantage = reward_tensor - old_value.detach()
+
+        # PPO Update (Simplified 1-step update for MVP)
+        self.optimizer.zero_grad()
+
+        # New evaluation
+        action_mean, new_value = self.policy_net(state)
+        dist = torch.distributions.Normal(action_mean, 0.1)
+        new_log_prob = dist.log_prob(action)
+
+        # Ratio
+        ratio = torch.exp(new_log_prob - old_log_prob.detach())
+
+        # Surrogate Loss
+        surr1 = ratio * advantage
+        surr2 = torch.clamp(ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantage
+        actor_loss = -torch.min(surr1, surr2)
+
+        # Critic Loss
+        critic_loss = nn.MSELoss()(new_value, reward_tensor)
+
+        # Total Loss
+        loss = actor_loss + 0.5 * critic_loss
+        loss.backward()
+
+        # Clip gradients to prevent explosion
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=1.0)
+        self.optimizer.step()
+
+        logger.info(f"PPO Policy Updated. Actor Loss: {actor_loss.item():.4f}, Critic Loss: {critic_loss.item():.4f}")
+
+        # Clear memory after update (Since we do step-by-step updates here)
+        self.rollout_memory = []
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    agent = PPOMetaAgent(system_prompt="Minimize BPB under 16MB.")
+    agent = PPOMetaAgent()
 
     dummy_code = """
-class MLP3x(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-
-        # 3x expansion instead of standard 4x (e.g., 512 -> 1536)
-        hidden_dim = 3 * config.n_embd
+class GPTConfig:
+    # Architecture Hyperparameters
+    mlp_expansion = 3
+    depth_loops = 3
     """
 
-    # Intentionally mismatched whitespace to test robustness
-    search_str = """
-    # 3x expansion instead of standard 4x (e.g., 512 -> 1536)
-    hidden_dim = 3 * config.n_embd
-    """
-    replace_str = "        # Expanded\n        hidden_dim = 4 * config.n_embd"
+    search_str = "    mlp_expansion = 3"
+    replace_str = "    mlp_expansion = 4"
 
     print("Testing Robust Diff Parser...")
     new_c = DiffParser.apply_patch(dummy_code, search_str, replace_str)
