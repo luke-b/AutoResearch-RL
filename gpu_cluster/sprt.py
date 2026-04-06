@@ -39,6 +39,13 @@ class SPRTFilter:
         if len(self.loss_history) < 5:
             return False
 
+        # Plateau Detection (If loss hasn't improved in 5 checks, kill it)
+        if len(self.loss_history) > 10:
+            recent_losses = self.loss_history[-5:]
+            if max(recent_losses) - min(recent_losses) < 0.001 and min(recent_losses) > self.sota_threshold:
+                logger.info(f"SPRT ABORT: Loss plateau detected at {min(recent_losses):.4f} > {self.sota_threshold:.4f}")
+                return True
+
         t_data = np.array(self.step_history)
         L_data = np.array(self.loss_history)
 
@@ -58,20 +65,21 @@ class SPRTFilter:
             # Extrapolate to the end of training (max_steps)
             projected_final_loss = self._power_law_curve(self.max_steps, a, b, c)
 
-            # Simple confidence interval check using covariance matrix
-            # If the projected loss + confidence margin is STILL strictly worse than SOTA, we abort.
-            # (Note: This is a simplified SPRT implementation adapted for deterministic power-law bounds)
-
-            # Estimate standard error of the projection (simplified)
+            # Estimate standard error of the offset (c) from the covariance matrix
+            # This provides a basic confidence interval around the projection
             perr = np.sqrt(np.diag(pcov))
-            # Just look at the offset uncertainty (c) as a very rough bound, or compute full Jacobian.
-            # For this MVP, we will assume an abort if the raw projection is significantly higher than SOTA.
+            c_std_err = perr[2]
 
-            # Let's say if projected_final_loss > SOTA by a margin, we abort.
-            # In a true SPRT, we'd use log-likelihood ratios. Here we use the specified power-law extrapolation.
+            # Calculate the lower bound of our projection based on confidence level
+            # (Assuming normal distribution of error, 95% is approx 1.96 standard errors)
+            # If the best-case (lower bound) is still worse than SOTA + 5% margin, we abort
+            lower_bound_projection = projected_final_loss - (1.96 * c_std_err)
+
             margin = 0.05 # 5% margin
-            if projected_final_loss > self.sota_threshold * (1 + margin):
-                logger.info(f"SPRT ABORT triggered at step {current_step}. Projected final BPB: {projected_final_loss:.4f} > Threshold: {self.sota_threshold:.4f}")
+
+            if lower_bound_projection > self.sota_threshold * (1 + margin):
+                logger.info(f"SPRT ABORT triggered at step {current_step}.")
+                logger.info(f"Projected Best-Case BPB: {lower_bound_projection:.4f} > Threshold: {self.sota_threshold:.4f}")
                 return True
 
         except Exception as e:
@@ -79,16 +87,3 @@ class SPRTFilter:
             logger.debug(f"Curve fitting failed at step {current_step}: {e}")
 
         return False
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    filter = SPRTFilter(sota_threshold=0.98, max_steps=1000)
-
-    # Simulate a run that won't make it
-    for step in range(50, 600, 50):
-        # Fake data that flattens out around 1.1
-        fake_loss = 2.0 * (step)**(-0.5) + 1.1
-        should_abort = filter.update_and_check(step, fake_loss)
-        if should_abort:
-            print(f"Aborted early at step {step}!")
-            break

@@ -37,8 +37,7 @@ class CausalityAuditor(ast.NodeVisitor):
 
     def _is_forward_looking(self, node):
         """
-        Simple heuristic: looking for things like `i + 1` or `t + something_positive`.
-        In reality, this needs to be highly robust to catch sophisticated cheating.
+        Heuristic: Recursively looks for things like `i + 1` or `t + k` where `k > 0`.
         """
         if isinstance(node, ast.BinOp):
             if isinstance(node.op, ast.Add):
@@ -47,6 +46,10 @@ class CausalityAuditor(ast.NodeVisitor):
                     return True
                 if isinstance(node.left, ast.Constant) and isinstance(node.left.value, (int, float)) and node.left.value > 0:
                     return True
+
+            # Recursively check nested operations (e.g. data[(t + 1) * 2])
+            return self._is_forward_looking(node.left) or self._is_forward_looking(node.right)
+
         return False
 
 def check_causality_leak(source_code: str) -> bool:
@@ -70,28 +73,3 @@ def check_causality_leak(source_code: str) -> bool:
         # If we can't parse it, we consider it a failure, though technically it's a syntax error, not a leak.
         # It's safer to reject it.
         return True
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-
-    clean_code = """
-def get_batch(data, i):
-    return data[i:i+seq_len]  # Wait, i to i+seq_len is normal for generating input.
-    # Actually, predicting i+1 from i is standard.
-    # The leak is using data[i+2] to predict data[i+1].
-"""
-
-    dirty_code = """
-def eval_step(data, i):
-    # Looking into the future to cheat on the current prediction
-    future_token = data[i + 1]
-    return evaluate(prediction, future_token)
-"""
-
-    print("Testing Clean Code:")
-    leak1 = check_causality_leak(clean_code)
-    print(f"Leak detected: {leak1}")
-
-    print("\nTesting Dirty Code:")
-    leak2 = check_causality_leak(dirty_code)
-    print(f"Leak detected: {leak2}")
