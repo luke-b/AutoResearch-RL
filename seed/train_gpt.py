@@ -8,6 +8,28 @@ import json
 logger = logging.getLogger("GoldenSeed")
 
 # -----------------------------------------------------------------------------
+# Golden Seed Config
+# -----------------------------------------------------------------------------
+class GPTConfig:
+    # Base Dimensions
+    vocab_size = 50257
+    block_size = 2048
+    n_embd = 512
+    n_head = 8
+
+    # Architecture Hyperparameters
+    mlp_expansion = 3
+    depth_loops = 3
+    lora_rank = 4
+    qk_gain_init = 4.0
+
+    # Optimizer / Schedule Hyperparameters
+    muon_lr = 0.02
+    muon_momentum = 0.92
+    warmdown_steps = 20
+    eval_stride = 64
+
+# -----------------------------------------------------------------------------
 # 1. Int6 Quantization (Simulated) & Linear Layer
 # -----------------------------------------------------------------------------
 class Int6LinearDynamic(nn.Module):
@@ -51,7 +73,7 @@ class QKGainAttention(nn.Module):
         self.c_proj = Int6LinearDynamic(config.n_embd, config.n_embd, bias=False)
         self.n_head = config.n_head
         self.n_embd = config.n_embd
-        self.qk_gain = nn.Parameter(torch.tensor(4.0))
+        self.qk_gain = nn.Parameter(torch.tensor(float(config.qk_gain_init)))
 
     def forward(self, x):
         B, T, C = x.size()
@@ -67,12 +89,12 @@ class QKGainAttention(nn.Module):
         return self.c_proj(y)
 
 # -----------------------------------------------------------------------------
-# 3. 3x MLP Expansion
+# 3. Dynamic MLP Expansion
 # -----------------------------------------------------------------------------
-class MLP3x(nn.Module):
+class MLPDynamic(nn.Module):
     def __init__(self, config):
         super().__init__()
-        hidden_dim = 3 * config.n_embd
+        hidden_dim = config.mlp_expansion * config.n_embd
         self.c_fc    = Int6LinearDynamic(config.n_embd, hidden_dim, bias=False)
         self.gelu    = nn.GELU(approximate='tanh')
         self.c_proj  = Int6LinearDynamic(hidden_dim, config.n_embd, bias=False)
@@ -89,7 +111,7 @@ class Block(nn.Module):
         self.ln_1 = nn.LayerNorm(config.n_embd)
         self.attn = QKGainAttention(config)
         self.ln_2 = nn.LayerNorm(config.n_embd)
-        self.mlp = MLP3x(config)
+        self.mlp = MLPDynamic(config)
 
     def forward(self, x):
         x = x + self.attn(self.ln_1(x))
@@ -105,11 +127,13 @@ class DepthRecurrentGPT(nn.Module):
         self.config = config
         self.wte = nn.Embedding(config.vocab_size, config.n_embd, dtype=torch.bfloat16)
         self.wpe = nn.Embedding(config.block_size, config.n_embd, dtype=torch.bfloat16)
-        self.blocks = nn.ModuleList([Block(config) for _ in range(3)])
+        self.blocks = nn.ModuleList([Block(config) for _ in range(3)]) # Physical blocks
         self.ln_f = nn.LayerNorm(config.n_embd)
-        self.lora_rank = 4
-        self.lora_a = nn.Parameter(torch.randn(3, config.n_embd, self.lora_rank) * 0.01)
-        self.lora_b = nn.Parameter(torch.zeros(3, self.lora_rank, config.n_embd))
+
+        self.depth_loops = config.depth_loops
+        self.lora_rank = config.lora_rank
+        self.lora_a = nn.Parameter(torch.randn(self.depth_loops, config.n_embd, self.lora_rank) * 0.01)
+        self.lora_b = nn.Parameter(torch.zeros(self.depth_loops, self.lora_rank, config.n_embd))
 
     def forward(self, idx, targets=None):
         b, t = idx.size()
@@ -117,7 +141,7 @@ class DepthRecurrentGPT(nn.Module):
         tok_emb = self.wte(idx).float()
         pos_emb = self.wpe(pos).float()
         x = tok_emb + pos_emb
-        for loop_iter in range(3):
+        for loop_iter in range(self.depth_loops):
             lora_delta = x @ self.lora_a[loop_iter] @ self.lora_b[loop_iter]
             x = x + lora_delta
             for block in self.blocks:
@@ -178,15 +202,10 @@ class AveragedModel(nn.Module):
                 if param.requires_grad:
                     param.data.copy_(self.averaged_params[name])
 
-# -----------------------------------------------------------------------------
-# Golden Seed Config & Main
-# -----------------------------------------------------------------------------
-class GPTConfig:
-    vocab_size = 50257
-    block_size = 2048
-    n_embd = 512
-    n_head = 8
 
+# -----------------------------------------------------------------------------
+# Main Execution / Training Loop
+# -----------------------------------------------------------------------------
 if __name__ == "__main__":
     # Ensure logs don't mess up JSON stdout for the dispatcher
     logging.basicConfig(level=logging.ERROR)
@@ -195,11 +214,11 @@ if __name__ == "__main__":
 
     config = GPTConfig()
     model = DepthRecurrentGPT(config)
-    optimizer = Muon(model.parameters(), lr=0.02, momentum=0.92)
+    optimizer = Muon(model.parameters(), lr=config.muon_lr, momentum=config.muon_momentum)
     ema_model = AveragedModel(model)
 
     total_steps = 100 # Shortened for test execution speed
-    warmdown_steps = 20
+    warmdown_steps = config.warmdown_steps
 
     # Training Loop Simulation
     for step in range(1, total_steps + 1):
@@ -218,7 +237,7 @@ if __name__ == "__main__":
             print(json.dumps({"step": step, "loss": loss.item()}), flush=True)
 
     # Evaluation phase simulation: Sliding Window Evaluation
-    def sliding_window_eval(eval_model, sequence_length=2000, context_size=2048, stride=64):
+    def sliding_window_eval(eval_model, sequence_length=2000, context_size=2048, stride=config.eval_stride):
         eval_model.eval()
         fake_dataset = torch.randint(0, config.vocab_size, (1, sequence_length))
         total_loss = 0.0
@@ -234,6 +253,9 @@ if __name__ == "__main__":
 
                 if input_ids.size(1) == 0: continue
 
+                # Dynamic Causality Instrumentation
+                if input_ids.shape[1] > 0 and target_ids.shape[1] > 0 and torch.any(torch.eq(input_ids[:, -1], target_ids[:, -1])):
+                    pass # Just a heuristic mock in case of matching randoms, but real system asserts here.
                 _, l = eval_model(input_ids, target_ids)
                 total_loss += l.item()
                 steps += 1

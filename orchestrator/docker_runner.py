@@ -19,18 +19,19 @@ class GPUDispatcher:
     Handles the actual dispatch of the generated script to an isolated execution environment
     (e.g., a Docker container simulating an 8xH100 node).
     """
-    def __init__(self, sprt_callback: Callable[[int, float], bool], time_limit_sec: int = 600):
+    def __init__(self, sprt_callback: Callable[[int, float], bool], time_limit_sec: int = 600, use_docker: bool = False):
         """
         Args:
             sprt_callback: A function `fn(step, loss) -> bool` that returns True if the run should be aborted.
             time_limit_sec: Max allowed wall-clock time.
+            use_docker: If True, dispatches to a real nvidia-docker container instead of a local python subprocess.
         """
         self.sprt_callback = sprt_callback
         self.time_limit_sec = time_limit_sec
+        self.use_docker = use_docker
         self._active_processes = {}
 
     def _write_script_to_file(self, job_id: str, source_code: str) -> str:
-        # In reality, this might be written to a shared NFS or directly piped into Docker
         file_path = f"/tmp/autoresearch_job_{job_id}.py"
         with open(file_path, "w") as f:
             f.write(source_code)
@@ -41,14 +42,25 @@ class GPUDispatcher:
         Launches the training job, monitors it via the SPRT callback, and enforces constraints.
         This function blocks until completion or abort.
         """
-        logger.info(f"Dispatching Job {job_id} to GPU Node...")
+        logger.info(f"Dispatching Job {job_id} to GPU Node (Docker: {self.use_docker})...")
 
         script_path = self._write_script_to_file(job_id, source_code)
 
-        # We execute the actual candidate script via subprocess
-        # In a real environment, this would build a container and run it on a GPU node
+        if self.use_docker:
+            # Construct a real Docker command for an 8xH100 node with NVLink
+            cmd = [
+                "docker", "run", "--rm",
+                "--gpus", "all",
+                "--ipc=host", # Required for NCCL/NVLink
+                "-v", f"{script_path}:/workspace/train_job.py",
+                "autoresearch-rl-node:latest" # Image built from Dockerfile.cuda
+            ]
+        else:
+            # Fallback to local subprocess execution
+            cmd = ["python3", script_path]
+
         process = subprocess.Popen(
-            ["python3", script_path],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True
