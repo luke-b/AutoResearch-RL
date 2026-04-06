@@ -104,7 +104,7 @@ All foundational milestones for the AutoResearch-RL framework MVP have been succ
 | **MDP Environment / Reward** | ✅ **Complete** | Reward function precisely implemented (`mdp_env.py`). Maintains the history buffer of 32 experiments and calculates novelty. |
 | **Causality Auditor** | ✅ **Complete** | Uses Python `ast.NodeVisitor` to statically detect forward-looking index slicing and illegal shifting operations. |
 | **Golden Seed (`train_gpt.py`)** | ✅ **Complete** | Fully functional PyTorch baseline featuring simulated Int6 layers, QK-Norm, Depth Recurrence, Muon Optimizer, SWA, and Sliding Window Eval. |
-| **PPO Meta-Agent** | ✅ **Complete** | Ingests the massive MDP state and uses a `DiffParser` to safely apply JSON search-and-replace patches. |
+| **PPO Meta-Agent** | ✅ **Complete** | Ingests the massive MDP state and uses a robust whitespace-insensitive `DiffParser` to safely apply JSON search-and-replace patches. |
 | **GPU Dispatcher** | ✅ **Complete** | Isolates training scripts in subprocesses, monitors JSON streaming telemetry, and executes SPRT aborts. |
 | **Perpetual Loop (`main.py`)**| ✅ **Complete** | Ties all components together into an autonomous 24/7 research cycle that tracks SOTA BPB and saves artifacts. |
 
@@ -115,27 +115,33 @@ All foundational milestones for the AutoResearch-RL framework MVP have been succ
 Getting started with the AutoResearch-RL MVP is simple. The current iteration uses simulated LLM responses and subprocess-based GPU execution, meaning it can be run on a standard laptop without requiring an 8xH100 cluster.
 
 ### 1. Prerequisites
-Ensure you have Python 3.10+ installed. Install the required dependencies:
+Ensure you have Python 3.10+ installed. Install the required dependencies to run the system and its test suite:
 
 ```bash
-pip install numpy scipy torch
+pip install numpy scipy torch zstandard pytest
 ```
-*(Optional but recommended for accurate size simulations)*: `pip install zstandard`
 
-### 2. Exploring the Golden Seed
+### 2. Running the Automated Test Suite
+To verify the integrity of the core components (Diff Parser, Auditor, SPRT, Orchestrator), run the `pytest` suite:
+
+```bash
+pytest tests/
+```
+
+### 3. Exploring the Golden Seed
 Before running the main loop, you can independently test the highly-optimized `train_gpt.py` seed script to verify its forward/backward pass and Sliding Window Evaluation mechanism:
 
 ```bash
 python3 seed/train_gpt.py
 ```
 
-### 3. Testing the Causality Auditor
+### 4. Testing the Causality Auditor
 You can test the static analysis engine that prevents cheating:
 ```bash
 python3 auditor/causality_auditor.py
 ```
 
-### 4. Running the Perpetual Agent Loop
+### 5. Running the Perpetual Agent Loop
 To start the continuous AutoResearch cycle, simply execute `main.py`.
 
 ```bash
@@ -144,14 +150,14 @@ python3 main.py
 
 **What to expect during execution:**
 1. The script will load the `train_gpt.py` Golden Seed.
-2. The PPO Agent will mock an LLM call and generate a code mutation (e.g., expanding the MLP layer).
-3. The Orchestrator will run an AST syntax check, a capacity check, and the Causality Auditor.
+2. The PPO Agent will mock an LLM call and generate a code mutation (e.g., expanding the MLP layer). The `DiffParser` will apply it robustly.
+3. The Orchestrator will run an AST syntax check, a `zstandard` capacity check, and the Causality Auditor.
 4. The `GPUDispatcher` will spawn a background process simulating the training run.
 5. The `SPRTFilter` will actively monitor the simulated loss stream. If the run is poor, it will instantly ABORT it.
 6. The `AutoResearchEnv` will calculate the complex reward and update its memory buffer.
 7. If a new State-of-the-Art (SOTA) is achieved, the script is saved to the `/artifacts/` directory.
 
-### 5. Experimenting & Hacking
+### 6. Experimenting & Hacking
 *   **Plug in a Real LLM:** Open `agent/ppo_agent.py` and replace the `mock_llm_response` string inside `generate_action()` with an actual API call to OpenAI (gpt-4o) or Anthropic (Claude 3.5 Sonnet).
 *   **Adjust Constraints:** Open `orchestrator/orchestrator.py` and modify `MAX_ARTIFACT_SIZE_BYTES` or `MAX_TIME_SECONDS` to simulate different competition environments.
 *   **Tweak SPRT Aggressiveness:** In `gpu_cluster/sprt.py`, modify the `margin` or `confidence_level` to see how early stopping impacts the exploration rate of the agent.

@@ -3,24 +3,25 @@
 This document summarizes the current implementation status of the AutoResearch-RL framework as of the completion of the foundational milestones.
 
 ## 1. Overall Status
-**STATUS: SUCCESS (MVP Complete)**
+**STATUS: SUCCESS (MVP Complete + Hardened)**
 
-The framework successfully transitions from concept to a functional, modular Python architecture. All specified constraints and sub-systems have been built, thoroughly mocked, and tested.
+The framework successfully transitions from concept to a functional, modular Python architecture. All specified constraints and sub-systems have been built, thoroughly mocked, and tested using an automated testing suite.
 
 ## 2. Component Breakdown
 
-### A. Orchestrator (`orchestrator/orchestrator.py`)
+### A. Orchestrator (`orchestrator/orchestrator.py` & `orchestrator/docker_runner.py`)
 - **Status**: Implemented & Functional.
 - **Features**:
   - Parses code via `ast` for instant syntax failure detection.
-  - Simulates the 16MB file capacity limit by performing simulated compression (via `zstandard`) and parameter estimation.
-  - Mocks the submission process to the GPU layer.
+  - Accurately simulates the 16MB file capacity limit by using the `zstandard` module and parameter estimation.
+  - The `GPUDispatcher` mocks the submission process, spinning up isolated background subprocesses that stream JSON telemetry back to the orchestrator.
 
-### B. MDP Environment & PPO Agent (`agent/mdp_env.py`)
-- **Status**: Implemented & Functional.
+### B. MDP Environment & PPO Agent (`agent/mdp_env.py` & `agent/ppo_agent.py`)
+- **Status**: Implemented, Functional & Hardened.
 - **Features**:
   - Implements the complex multi-objective reward calculation: `r_t = Δbpb_t + r_novelty - p_syntax - p_waste - p_causality`.
   - Maintains a memory buffer (`H_t`) of the last 32 experiments to ensure novelty and track history.
+  - Contains a **Robust DiffParser** that utilizes whitespace-insensitive, line-by-line matching to apply LLM-generated JSON patches safely, solving brittleness issues found in standard `replace()` methods.
 
 ### C. SPRT Early Stopping Filter (`gpu_cluster/sprt.py`)
 - **Status**: Implemented & Functional.
@@ -32,7 +33,7 @@ The framework successfully transitions from concept to a functional, modular Pyt
 - **Status**: Implemented & Functional.
 - **Features**:
   - Performs static analysis using Python's `ast.NodeVisitor`.
-  - Scans for illegal forward-looking operations (e.g., `data[i+1]` or `.shift(-1)`) to enforce the strict "no cheating" causality constraint.
+  - Scans for illegal forward-looking operations (e.g., `data[i+1]` or `.shift(-1)`) to enforce the strict "no cheating" causality constraint while properly ignoring standard window generation slicing.
 
 ### E. The Golden Seed (`seed/train_gpt.py`)
 - **Status**: Implemented & Functional.
@@ -41,7 +42,12 @@ The framework successfully transitions from concept to a functional, modular Pyt
   - **Depth Recurrence**: A 3-block transformer that loops 3 times with dynamic LoRA (rank=4) deltas to simulate a 9-layer deep network at 1/3 the parameter cost.
   - **Modern Ops**: 3x MLPs and QK-Normalization (L2) with learned scaling parameters.
   - **Optimization**: Incorporates the Muon optimizer alongside a Stochastic Weight Averaging (SWA) and Exponential Moving Average (EMA) warmdown phase.
-  - **Evaluation**: Implement Sliding Window Evaluation algorithm over the validation dataset.
+  - **Evaluation**: Implements a Sliding Window Evaluation algorithm over the validation dataset.
+
+### F. Automated Test Suite (`tests/`)
+- **Status**: Implemented.
+- **Features**:
+  - Comprehensive `pytest` coverage for the core systems, including exact and flexible diff parsing, causality auditor edge cases, SPRT bounds extrapolation, and capacity/AST simulations.
 
 ## 3. Conclusion
-The codebase is structured to be completely resilient, properly ignoring PyCache via `.gitignore`, relying on clean object-oriented implementations, and prepared to be integrated with an actual code-generating LLM API for the PPO agent's action loop.
+The codebase is structured to be completely resilient, properly ignoring PyCache via `.gitignore`, relying on robust and tested object-oriented implementations, and prepared to be integrated with an actual code-generating LLM API for the PPO agent's action loop.
