@@ -57,7 +57,7 @@ def run_perpetual_loop():
     logger.info("Loaded Golden Seed.")
 
     iteration = 1
-    max_iterations = 3 # Run for 3 iterations to test the loop
+    max_iterations = 1 # Run for 3 iterations to test the loop
 
     while iteration <= max_iterations:
         logger.info(f"\n{'='*50}\n🔄 Starting Iteration {iteration}\n{'='*50}")
@@ -112,13 +112,16 @@ def run_perpetual_loop():
 
         logger.info(f"Iteration Result -> Status: {result.status}, BPB: {result.final_bpb}, Reward: {step_info['reward']:.4f}")
 
+        # 7. UPDATE POLICY NETWORK (PPO Learning Step)
+        agent.update_policy(step_info['reward'])
+
         log_experiment_json(
             iteration, job_id, applied_patch, result.status,
             result.final_bpb, step_info['reward'], env.history[-1]['components'],
             causality_leak, abort_step
         )
 
-        # 7. Update SOTA and Artifacts
+        # 8. Update SOTA and Artifacts
         if result.status == "COMPLETED" and result.final_bpb is not None and result.final_bpb < env.sota_bpb:
             logger.info("🏆 Candidate code accepted as new SOTA!")
             current_best_code = candidate_code

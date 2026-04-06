@@ -67,44 +67,62 @@ class GPUDispatcher:
         )
         self._active_processes[job_id] = process
 
-        final_bpb = None
-        status = "FAILED"
-        error_message = None
+        # We need a robust, non-blocking way to read output and enforce timeouts.
+        # If the candidate code enters an infinite loop without printing, a simple readline blocks forever.
+        # Thus, we put the I/O read in a separate thread and use process.wait(timeout) in the main thread.
+        result_box = {
+            "final_bpb": None,
+            "status": "FAILED",
+            "error_message": None
+        }
 
-        start_time = time.time()
+        def stream_reader():
+            try:
+                for line in iter(process.stdout.readline, ''):
+                    # Fast abort check if another thread killed the process
+                    if process.poll() is not None:
+                        break
+
+                    try:
+                        data = json.loads(line.strip())
+
+                        if "step" in data and "loss" in data:
+                            should_abort = self.sprt_callback(data["step"], data["loss"])
+                            if should_abort:
+                                logger.info(f"Job {job_id} aborted by SPRT Filter.")
+                                process.terminate()
+                                result_box["status"] = "ABORTED"
+                                result_box["error_message"] = "SPRT_EARLY_STOPPING"
+                                break
+
+                        if "status" in data and data["status"] == "completed":
+                            result_box["final_bpb"] = data.get("final_bpb")
+                            result_box["status"] = "COMPLETED"
+
+                    except json.JSONDecodeError:
+                        pass # Not JSON
+            except Exception as e:
+                logger.error(f"Error reading stream for job {job_id}: {e}")
+
+        # Start reading the stream in a background thread
+        reader_thread = threading.Thread(target=stream_reader)
+        reader_thread.daemon = True
+        reader_thread.start()
 
         try:
-            for line in iter(process.stdout.readline, ''):
-                if time.time() - start_time > self.time_limit_sec:
-                    logger.warning(f"Job {job_id} hit Wall-Clock Time Limit ({self.time_limit_sec}s). Killing.")
-                    process.terminate()
-                    status = "ABORTED"
-                    error_message = "TimeLimitExceeded"
-                    break
-
-                try:
-                    data = json.loads(line.strip())
-
-                    if "step" in data and "loss" in data:
-                        should_abort = self.sprt_callback(data["step"], data["loss"])
-                        if should_abort:
-                            logger.info(f"Job {job_id} aborted by SPRT Filter.")
-                            process.terminate()
-                            status = "ABORTED"
-                            error_message = "SPRT_EARLY_STOPPING"
-                            break
-
-                    if "status" in data and data["status"] == "completed":
-                        final_bpb = data.get("final_bpb")
-                        status = "COMPLETED"
-
-                except json.JSONDecodeError:
-                    # Not JSON output, maybe a crash trace
-                    pass
-
+            # Main thread strictly enforces the wall-clock timeout regardless of stdout blocking
+            process.wait(timeout=self.time_limit_sec)
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Job {job_id} hit Wall-Clock Time Limit ({self.time_limit_sec}s). Killing.")
+            process.terminate()
+            process.wait() # Wait for it to actually die
+            result_box["status"] = "ABORTED"
+            result_box["error_message"] = "TimeLimitExceeded"
         finally:
-            process.stdout.close()
-            process.wait()
+            # Ensure resources are cleaned up
+            if process.stdout:
+                process.stdout.close()
+            reader_thread.join(timeout=1.0)
 
             # Cleanup
             if os.path.exists(script_path):
@@ -112,14 +130,14 @@ class GPUDispatcher:
 
             del self._active_processes[job_id]
 
-        if process.returncode != 0 and status not in ["ABORTED", "COMPLETED"]:
-             status = "FAILED"
-             error_message = f"Process crashed with code {process.returncode}"
+        if process.returncode != 0 and result_box["status"] not in ["ABORTED", "COMPLETED"]:
+             result_box["status"] = "FAILED"
+             result_box["error_message"] = f"Process crashed with code {process.returncode}"
 
         return EvaluationResult(
             job_id=job_id,
-            status=status,
-            final_bpb=final_bpb,
+            status=result_box["status"],
+            final_bpb=result_box["final_bpb"],
             artifact_size=15_000_000, # Handled by orchestrator limit simulation
-            error_message=error_message
+            error_message=result_box["error_message"]
         )
