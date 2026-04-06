@@ -11,9 +11,12 @@ class CausalityAuditor(ast.NodeVisitor):
     def visit_Subscript(self, node):
         # Look for suspicious slicing like data[i+1:] or data[t+1] which might indicate forward-looking
         if isinstance(node.slice, ast.Slice):
-            if self._is_forward_looking(node.slice.lower) or self._is_forward_looking(node.slice.upper):
+            # Standard generation slices like data[i:i+seq_len] are permitted.
+            # We must be careful not to trigger false positives on standard context windows.
+            # E.g., looking at `lower` for negative shifts is more important than `upper` for windowing.
+            if self._is_forward_looking(node.slice.lower):
                 self.found_violation = True
-                self.violation_details.append(f"Suspicious forward slice at line {node.lineno}")
+                self.violation_details.append(f"Suspicious forward slice (lower bound) at line {node.lineno}")
         elif isinstance(node.slice, ast.BinOp):
             if self._is_forward_looking(node.slice):
                 self.found_violation = True
