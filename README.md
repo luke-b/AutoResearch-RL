@@ -31,17 +31,17 @@ hyper‑parameter grids, it lets a transformer‑based RL agent directly **edit 
 the outcome. This open‑ended code‑editing strategy unlocks a much larger search space than conventional
 NAS or AutoML.
 
-```
+
 Diff‑based RL actions: The agent proposes JSON diff patches to the train.py file, enabling
 changes to architecture, optimizer, scheduler or even evaluation logic.
 Self‑evaluating loop: Each experiment runs under a fixed wall‑clock budget and reports val‑bpb. A
 power‑law early‑stopping module aborts ~54 % of bad runs , dramatically boosting throughput.
 Transformer policy with PPO: A LoRA‑fine‑tuned LLM uses PPO to learn which edits improve
 val‑bpb, ensuring continual improvement over thousands of iterations.
-```
+
 # ✅ Benefits
 
-```
+
 Broader discovery: Because actions operate on code, the agent can uncover counter‑intuitive
 strategies (e.g., constant LR outperforming cosine schedules for RL fine‑tuning ) that static
 search spaces would miss.
@@ -49,7 +49,7 @@ Resource awareness: The seed model incorporates depth‑recurrent loops, int6 qu
 selective precision , aligning with Parameter Golf constraints.
 Efficient experimentation: Real‑time early stopping and novelty bonuses focus compute on
 promising ideas, allowing the system to run hundreds of experiments overnight.
-```
+
 # 🌍 Implications
 
 AutoResearch‑RL hints at a future where **autonomous agents drive scientific discovery**. By reframing
