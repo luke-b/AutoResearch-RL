@@ -262,14 +262,35 @@ if __name__ == "__main__":
 
                     if input_ids.size(1) == 0: continue
 
-                    # Dynamic Causality Instrumentation
+                    # Dynamic Causality Instrumentation: explicit assertions
                     if input_ids.size(1) == target_ids.size(1):
                          assert not torch.equal(input_ids, target_ids), "Causality Violation: Input exactly matches target."
+
+                    # Verify no token attends to future positions by testing if modifying future tokens
+                    # affects past predictions
+                    if input_ids.size(1) > 1:
+                        # Forward pass on normal input
+                        logits_normal, _ = eval_model(input_ids, target_ids)
+
+                        # Perturb the last token
+                        input_ids_perturbed = input_ids.clone()
+                        input_ids_perturbed[0, -1] = (input_ids_perturbed[0, -1] + 1) % config.vocab_size
+
+                        # Forward pass on perturbed input
+                        logits_perturbed, _ = eval_model(input_ids_perturbed, target_ids)
+
+                        # Predictions for all tokens except the last one MUST remain identical
+                        # otherwise information leaked from the future (the last token) to the past
+                        if not torch.allclose(logits_normal[:, :-1, :], logits_perturbed[:, :-1, :], atol=1e-5):
+                            raise AssertionError("Causality Violation: Future token modified past predictions.")
 
                     try:
                         _, l = eval_model(input_ids, target_ids)
                         total_loss += l.item()
                         steps += 1
+                    except AssertionError as ae:
+                        if "Causality Violation" in str(ae):
+                            raise ae
                     except Exception as e:
                         pass
 

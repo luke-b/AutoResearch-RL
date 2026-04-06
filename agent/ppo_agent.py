@@ -33,8 +33,32 @@ class ASTDiffParser:
                             lines[node.lineno - 1] = replace_block.strip()
                             return "\n".join(lines)
         except Exception as e:
-            logger.debug(f"AST-based diff failed or wasn't applicable, falling back to text match: {e}")
+            logger.debug(f"AST-based assignment diff failed or wasn't applicable, trying structure matching: {e}")
             pass
+
+        # Use AST based generic patch application
+        try:
+            # We attempt to find matching nodes in the original AST that structurally match the search block
+            search_ast = ast.parse(search_block)
+            original_ast = ast.parse(original_code)
+
+            # Simple heuristic: if the search block is a single function/class def, try to find it by name
+            if len(search_ast.body) == 1 and isinstance(search_ast.body[0], (ast.FunctionDef, ast.ClassDef)):
+                target_name = search_ast.body[0].name
+                for node in original_ast.body:
+                    if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name == target_name:
+                        # Replace the whole node in the source lines
+                        start_line = node.lineno - 1
+                        end_line = node.end_lineno
+                        lines = original_code.splitlines()
+                        new_lines = lines[:start_line] + replace_block.splitlines() + lines[end_line:]
+                        return "\n".join(new_lines)
+
+            # More general AST structure matching could be implemented here,
+            # but standard AST modules don't provide easy arbitrary block replacement
+            # while maintaining exact formatting for the rest of the file.
+        except Exception as e:
+            logger.debug(f"AST-based structural diff failed, falling back to text match: {e}")
 
         # Fallback: Robust Whitespace-Insensitive Matching
         return ASTDiffParser._apply_text_patch(original_code, search_block, replace_block)
@@ -102,7 +126,7 @@ class PolicyValueNetwork(nn.Module):
     """
     Basic PPO Actor-Critic Network handling an extended state vector.
     """
-    def __init__(self, state_dim=8):
+    def __init__(self, state_dim=13):
         super().__init__()
         self.actor = nn.Sequential(
             nn.Linear(state_dim, 64),
@@ -134,7 +158,7 @@ class PPOMetaAgent:
             logger.info("No OpenAI API Key found. Operating in MOCK mode.")
             self.client = None
 
-        self.state_dim = 8
+        self.state_dim = 13
         self.policy_net = PolicyValueNetwork(state_dim=self.state_dim)
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=1e-3)
         self.gamma = 0.99
@@ -154,6 +178,9 @@ class PPOMetaAgent:
         # Parse current code for Hyperparams
         lora_rank_val = 0.0
         mlp_exp_val = 0.0
+        depth_loops_val = 0.0
+        qk_gain_init_val = 0.0
+        muon_lr_val = 0.0
         try:
             tree = ast.parse(current_code)
             for node in ast.walk(tree):
@@ -162,19 +189,29 @@ class PPOMetaAgent:
                         lora_rank_val = float(node.value.value)
                     if node.targets[0].id == "mlp_expansion" and isinstance(node.value, ast.Constant):
                         mlp_exp_val = float(node.value.value)
+                    if node.targets[0].id == "depth_loops" and isinstance(node.value, ast.Constant):
+                        depth_loops_val = float(node.value.value)
+                    if node.targets[0].id == "qk_gain_init" and isinstance(node.value, ast.Constant):
+                        qk_gain_init_val = float(node.value.value)
+                    if node.targets[0].id == "muon_lr" and isinstance(node.value, ast.Constant):
+                        muon_lr_val = float(node.value.value)
         except: pass
 
         # Calculate Trends
         abort_freq = 0.0
         delta_trend = 0.0
+        avg_abort_step = 0.0
         if env_history:
             valid_bpbs = [e.get("final_bpb") for e in env_history if e.get("final_bpb") is not None and not torch.isnan(torch.tensor(e.get("final_bpb")))]
             if valid_bpbs:
                 current_sota = min(valid_bpbs)
 
-            # Abort freq
-            aborts = sum([1 for e in env_history if e.get("status") == "ABORTED"])
-            abort_freq = aborts / float(max(1, len(env_history)))
+            # Abort freq and avg abort step
+            aborts = [e for e in env_history if e.get("status") == "ABORTED"]
+            abort_freq = len(aborts) / float(max(1, len(env_history)))
+
+            if aborts:
+                avg_abort_step = sum([e.get("reward_components", {}).get("sprt_abort_penalty", 0.0) for e in aborts]) / len(aborts)
 
             # Reward Trend
             recent_rewards = [e.get("reward", 0.0) for e in env_history[-3:]]
@@ -183,7 +220,9 @@ class PPOMetaAgent:
 
         state_vec = [
             current_sota, float(iteration), oom_flag, float(memory_size),
-            abort_freq, delta_trend, lora_rank_val, mlp_exp_val
+            abort_freq, delta_trend, lora_rank_val, mlp_exp_val,
+            depth_loops_val, qk_gain_init_val, muon_lr_val, avg_abort_step,
+            float(len(env_history) > 0 and "CausalityLeak" in [e.get("error_message", "") for e in env_history[-5:]])
         ]
         return torch.tensor(state_vec, dtype=torch.float32)
 
