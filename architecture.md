@@ -35,10 +35,10 @@ This document outlines the directory structure and main modules for the AutoRese
 ## Architecture Layers
 
 **Modul A1: CPU Orchestrator (`orchestrator/orchestrator.py` & `orchestrator/docker_runner.py`)**
-Runs on a CPU machine to handle AST verification ("smoke tests"), simulate 16MB limit checks (zstd compression and heterogeneous BF16/Int6 parameter estimation), and dispatch valid candidates to isolated subprocess environments or full CUDA docker containers via the `GPUDispatcher`.
+Runs on a CPU machine to handle AST verification ("smoke tests"), simulate 16MB limit checks (zstd compression and heterogeneous BF16/Int6 parameter estimation), and dispatch valid candidates to isolated subprocess environments or full CUDA docker containers via the `GPUDispatcher`. The dispatcher uses a background thread to robustly stream JSON telemetry without blocking the strict 10-minute wall-clock timeout enforcer.
 
 **Modul A2: PPO Meta-Agent (`agent/ppo_agent.py` & `agent/mdp_env.py`)**
-Serves as the decision-maker, observing state (current best code, memory of past $K=32$ experiments, constraints, runtime telemetry) to propose a structural action via OpenAI APIs. The `DiffParser` robustly applies these mutations using whitespace-insensitive matching. The MDP Environment calculates the dynamic multi-objective reward function including scalable novelty and late-abort penalties.
+Serves as the decision-maker. It features a true **PyTorch Actor-Critic Policy/Value Network** that ingests a rich 8-dimensional state vector (current BPB, abort frequencies, delta trends, OOM flags, and AST-extracted hyperparams) to calculate Advantage and sample a generation temperature. This directly controls the OpenAI API. The `ASTDiffParser` robustly applies these mutations using AST node targeting or whitespace-insensitive matching. The MDP Environment calculates the dynamic multi-objective reward function including scalable novelty and late-abort penalties.
 
 **Modul A3: Power-Law SPRT Filter (`gpu_cluster/sprt.py`)**
 A mechanism to intercept the training curve early. Uses `scipy.optimize.curve_fit` to extract covariance matrices, forming strict confidence intervals to safely abort runs that statistically will not surpass the SOTA threshold in the 10-minute time constraint. Includes plateau detection.

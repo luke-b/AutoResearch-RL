@@ -62,14 +62,11 @@ class GPUDispatcher:
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE, # Also capture stderr to see what failed
             text=True
         )
         self._active_processes[job_id] = process
 
-        # We need a robust, non-blocking way to read output and enforce timeouts.
-        # If the candidate code enters an infinite loop without printing, a simple readline blocks forever.
-        # Thus, we put the I/O read in a separate thread and use process.wait(timeout) in the main thread.
         result_box = {
             "final_bpb": None,
             "status": "FAILED",
@@ -79,7 +76,6 @@ class GPUDispatcher:
         def stream_reader():
             try:
                 for line in iter(process.stdout.readline, ''):
-                    # Fast abort check if another thread killed the process
                     if process.poll() is not None:
                         break
 
@@ -123,6 +119,12 @@ class GPUDispatcher:
             if process.stdout:
                 process.stdout.close()
             reader_thread.join(timeout=1.0)
+
+            # Print stderr if failed
+            if process.returncode != 0:
+                err_out = process.stderr.read()
+                if err_out:
+                    logger.error(f"Subprocess stderr: {err_out}")
 
             # Cleanup
             if os.path.exists(script_path):

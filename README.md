@@ -104,7 +104,7 @@ All foundational milestones for the AutoResearch-RL framework MVP have been succ
 | **MDP Environment / Reward** | ✅ **Complete** | Dynamically scales novelty, penalizes late-abort compute waste, and structurally logs components. |
 | **Causality Auditor** | ✅ **Complete** | Employs both recursive AST static analysis and runtime dynamic assertion instrumentation. |
 | **Golden Seed (`train_gpt.py`)** | ✅ **Complete** | Consolidates a hyperparameter search space (`GPTConfig`) atop simulated Int6 layers, QK-Norm, Depth Recurrence, and the Muon Optimizer. |
-| **PPO Meta-Agent** | ✅ **Operational** | Integrates directly with the OpenAI API (`gpt-4o`) via `OPENAI_API_KEY` and utilizes a robust, whitespace-insensitive `DiffParser`. |
+| **PPO Meta-Agent** | ✅ **Operational** | Features a PyTorch **Actor-Critic Policy Network** that controls the LLM temperature, using an `ASTDiffParser` to surgically mutate code while preserving syntax indentation. |
 | **GPU Dispatcher** | ✅ **Operational** | Supports an isolated Python subprocess or true `nvidia-docker` distributed execution (`use_docker=True`) via `Dockerfile.cuda`. |
 | **Perpetual Loop (`main.py`)**| ✅ **Operational** | Ties all components into a 24/7 autonomous cycle that actively writes to `experiment_logs.jsonl` and saves SOTA code artifacts. |
 

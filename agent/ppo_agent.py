@@ -28,9 +28,11 @@ class ASTDiffParser:
                 for node in ast.walk(orig_tree):
                     if isinstance(node, ast.Assign) and len(node.targets) == 1 and hasattr(node.targets[0], 'id'):
                         if node.targets[0].id == target_var:
-                            # Found the line! Replace it precisely
+                            # Found the line! Replace it precisely, preserving original indentation
                             lines = original_code.splitlines()
-                            lines[node.lineno - 1] = replace_block.strip()
+                            orig_line = lines[node.lineno - 1]
+                            indent = orig_line[:len(orig_line) - len(orig_line.lstrip())]
+                            lines[node.lineno - 1] = indent + replace_block.strip()
                             return "\n".join(lines)
         except Exception as e:
             logger.debug(f"AST-based diff failed or wasn't applicable, falling back to text match: {e}")
@@ -236,6 +238,7 @@ class PPOMetaAgent:
                 logger.error(f"OpenAI API call failed: {e}")
                 return current_best_code
         else:
+            # Need strict indentation match for mock so AST parsing doesn't fail
             llm_response = '''
             ```json
             [

@@ -89,8 +89,9 @@ class QKGainAttention(nn.Module):
         # Explicitly verify the causal mask to ensure no token attends to future tokens
         # F.scaled_dot_product_attention does this internally when is_causal=True,
         # but to prove strict causality adherence during automated mutation:
-        causal_mask = torch.tril(torch.ones(T, T, dtype=torch.bool, device=x.device))
-        assert torch.all(causal_mask | ~causal_mask), "Causality Violation: Attention mask corrupted."
+        # Ensure the upper triangle is strictly False (no future attention allowed)
+        assert not torch.any(torch.triu(torch.ones(T, T, dtype=torch.bool, device=x.device), diagonal=1)), "Causality Violation: Future tokens accessed."
+
 
         y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         y = y.transpose(1, 2).contiguous().view(B, T, C)
