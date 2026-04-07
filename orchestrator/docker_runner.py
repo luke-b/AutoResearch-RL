@@ -73,12 +73,17 @@ class GPUDispatcher:
         result_box = {
             "final_bpb": None,
             "status": "FAILED",
-            "error_message": None
+            "error_message": None,
+            "remediation": None
         }
+
+        last_heartbeat = [time.time()]
+        heartbeat_timeout = 60 # 60 seconds of silence is considered a crash/hang
 
         def stream_reader():
             try:
                 for line in iter(process.stdout.readline, ''):
+                    last_heartbeat[0] = time.time()
                     # Fast abort check if another thread killed the process
                     if process.poll() is not None:
                         break
@@ -93,6 +98,7 @@ class GPUDispatcher:
                                 process.terminate()
                                 result_box["status"] = "ABORTED"
                                 result_box["error_message"] = "SPRT_EARLY_STOPPING"
+                                result_box["remediation"] = "The projected loss curve was too far above SOTA. Try a more aggressive improvement."
                                 break
 
                         if "status" in data and data["status"] == "completed":
@@ -111,13 +117,34 @@ class GPUDispatcher:
 
         try:
             # Main thread strictly enforces the wall-clock timeout regardless of stdout blocking
-            process.wait(timeout=self.time_limit_sec)
-        except subprocess.TimeoutExpired:
-            logger.warning(f"Job {job_id} hit Wall-Clock Time Limit ({self.time_limit_sec}s). Killing.")
+            # Also poll for heartbeat timeout
+            start_time = time.time()
+            while process.poll() is None:
+                time.sleep(1)
+                now = time.time()
+
+                # Check absolute time limit
+                if now - start_time > self.time_limit_sec:
+                    logger.warning(f"Job {job_id} hit Wall-Clock Time Limit ({self.time_limit_sec}s). Killing.")
+                    process.terminate()
+                    process.wait()
+                    result_box["status"] = "ABORTED"
+                    result_box["error_message"] = "TimeLimitExceeded"
+                    result_box["remediation"] = "Execution took longer than the 10-minute limit. Try a smaller/faster architecture."
+                    break
+
+                # Check heartbeat (no output for `heartbeat_timeout` seconds)
+                if now - last_heartbeat[0] > heartbeat_timeout:
+                    logger.warning(f"Job {job_id} hit Heartbeat Timeout ({heartbeat_timeout}s of silence). Killing.")
+                    process.terminate()
+                    process.wait()
+                    result_box["status"] = "ABORTED"
+                    result_box["error_message"] = "HeartbeatTimeout"
+                    result_box["remediation"] = "The process hung or stopped printing telemetry. Check for infinite loops or deadlocks."
+                    break
+        except Exception as e:
+            logger.error(f"Error while waiting for job {job_id}: {e}")
             process.terminate()
-            process.wait() # Wait for it to actually die
-            result_box["status"] = "ABORTED"
-            result_box["error_message"] = "TimeLimitExceeded"
         finally:
             # Ensure resources are cleaned up
             if process.stdout:
@@ -133,11 +160,13 @@ class GPUDispatcher:
         if process.returncode != 0 and result_box["status"] not in ["ABORTED", "COMPLETED"]:
              result_box["status"] = "FAILED"
              result_box["error_message"] = f"Process crashed with code {process.returncode}"
+             result_box["remediation"] = "The script exited with an error. Review code for bugs, missing imports, or runtime exceptions."
 
         return EvaluationResult(
             job_id=job_id,
             status=result_box["status"],
             final_bpb=result_box["final_bpb"],
             artifact_size=15_000_000, # Handled by orchestrator limit simulation
-            error_message=result_box["error_message"]
+            error_message=result_box["error_message"],
+            remediation=result_box["remediation"]
         )

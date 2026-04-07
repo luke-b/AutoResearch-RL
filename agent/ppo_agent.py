@@ -127,6 +127,14 @@ class ASTDiffParser:
             patches = json.loads(json_str)
             if not isinstance(patches, list):
                 patches = [patches]
+
+            # Schema validation
+            for patch in patches:
+                if not isinstance(patch, dict) or 'search' not in patch or 'replace' not in patch:
+                    raise ValueError("Patch missing 'search' or 'replace' keys.")
+                if not isinstance(patch['search'], str) or not isinstance(patch['replace'], str):
+                    raise ValueError("Patch 'search' and 'replace' values must be strings.")
+
             return patches
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse LLM patch output: {e}")
@@ -244,6 +252,8 @@ class PPOMetaAgent:
         for exp in history:
             prompt += f"- Patch: {exp.get('patch', 'N/A')}\n"
             prompt += f"  Status: {exp.get('status', 'UNKNOWN')} | BPB: {exp.get('final_bpb', 'N/A')} | Reward: {exp.get('reward', 'N/A')}\n"
+            if exp.get('remediation'):
+                prompt += f"  Remediation: {exp.get('remediation')}\n"
 
         prompt += "\n### TELEMETRY & DIAGNOSTICS\n"
         prompt += json.dumps(telemetry, indent=2)
@@ -303,11 +313,14 @@ class PPOMetaAgent:
             for patch in patches:
                 new_code = ASTDiffParser.apply_patch(new_code, patch["search"], patch["replace"])
 
+            # AST-preserving transform validation
+            ast.parse(new_code)
+
             logger.info("Successfully applied generated patch.")
             return new_code
 
-        except ValueError as e:
-            logger.error(f"Action generation failed during patching: {e}")
+        except (ValueError, SyntaxError) as e:
+            logger.error(f"Action generation failed during patching or syntax validation: {e}")
             return current_best_code
 
     def update_policy(self, final_reward: float):
