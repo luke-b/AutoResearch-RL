@@ -14,7 +14,7 @@ from auditor.causality_auditor import check_causality_leak
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("AutoResearch-RL-Main")
 
-def log_experiment_json(iteration: int, job_id: str, patch: str, status: str, bpb: float, reward: float, components: dict, causality_leak: bool, abort_step: int):
+def log_experiment_json(iteration: int, job_id: str, patch: str, status: str, bpb: float, reward: float, components: dict, causality_leak: bool, abort_step: int, remediation: str = None):
     """Appends structured JSON logs for external analysis/dashboarding."""
     log_entry = {
         "timestamp": time.time(),
@@ -26,7 +26,8 @@ def log_experiment_json(iteration: int, job_id: str, patch: str, status: str, bp
         "reward_components": components,
         "causality_leak": causality_leak,
         "abort_step": abort_step,
-        "patch": patch
+        "patch": patch,
+        "remediation": remediation
     }
     with open("experiment_logs.jsonl", "a") as f:
         f.write(json.dumps(log_entry) + "\n")
@@ -83,6 +84,7 @@ def run_perpetual_loop(max_iterations: int = 1):
             result = orchestrator.submit_job(candidate_code)
             result.status = "ABORTED"
             result.error_message = "CausalityLeak"
+            result.remediation = "Remove forward-looking data references (e.g. data[i+1:] or negative shift)."
         else:
             # Smoke & Capacity check via Orchestrator
             if not orchestrator.run_smoke_test(candidate_code):
@@ -117,7 +119,7 @@ def run_perpetual_loop(max_iterations: int = 1):
         log_experiment_json(
             iteration, job_id, applied_patch, result.status,
             result.final_bpb, step_info['reward'], env.history[-1]['components'],
-            causality_leak, abort_step
+            causality_leak, abort_step, result.remediation
         )
 
         # 8. Update SOTA and Artifacts

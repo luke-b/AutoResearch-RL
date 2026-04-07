@@ -29,6 +29,7 @@ class EvaluationResult:
     final_bpb: Optional[float]
     artifact_size: int
     error_message: Optional[str] = None
+    remediation: Optional[str] = None
 
 
 class Orchestrator:
@@ -94,7 +95,8 @@ class Orchestrator:
                 status="ABORTED",
                 final_bpb=None,
                 artifact_size=0,
-                error_message="SyntaxError"
+                error_message="SyntaxError",
+                remediation="Ensure patch maintains valid python syntax. Check indentation and parentheses."
             )
 
         # 2. Capacity Constraint Check
@@ -106,7 +108,8 @@ class Orchestrator:
                 status="ABORTED",
                 final_bpb=None,
                 artifact_size=estimated_size,
-                error_message="CapacityLimitExceeded"
+                error_message="CapacityLimitExceeded",
+                remediation="Reduce parameters or simplify architecture. You hit the 16MB constraint."
             )
 
         # 3. Passed Pre-checks (Ready for GPU Dispatcher)

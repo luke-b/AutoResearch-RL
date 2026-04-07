@@ -90,7 +90,8 @@ class AutoResearchEnv:
             'status': result.status,
             'final_bpb': result.final_bpb,
             'reward': reward,
-            'components': components
+            'components': components,
+            'remediation': getattr(result, "remediation", None)
         })
 
         if len(self.history) > 32:
