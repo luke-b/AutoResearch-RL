@@ -23,7 +23,7 @@ class AutoResearchEnv:
         self.p_waste = 2.0
         self.p_causality = 100.0
 
-    def calculate_reward(self, result: EvaluationResult, is_novel: bool = True, causality_leak: bool = False, abort_step: int = 0, total_expected_steps: int = 200) -> float:
+    def calculate_reward(self, result: EvaluationResult, is_novel: bool = True, causality_leak: bool = False, abort_step: int = 0, total_expected_steps: int = 200, use_novelty: bool = True) -> float:
         """
         Calculates the reward r_t for a given action (diff patch execution).
         Formula: r_t = Δbpb_t + r_novelty - p_syntax - p_waste - p_causality
@@ -64,7 +64,7 @@ class AutoResearchEnv:
             reward += sprt_penalty
             reward_components["sprt_abort_penalty"] = sprt_penalty
 
-        if is_novel:
+        if is_novel and use_novelty:
             # Adaptive Novelty Bonus: Increases exponentially as history fills up,
             # encouraging the agent to explore further away from the local minima.
             staleness = len(self.history) / 32.0
@@ -75,14 +75,14 @@ class AutoResearchEnv:
         logger.info(f"Reward Components: {reward_components}")
         return float(reward), reward_components
 
-    def step(self, result: EvaluationResult, action_patch: str, causality_leak: bool = False, abort_step: int = 0) -> Dict[str, Any]:
+    def step(self, result: EvaluationResult, action_patch: str, causality_leak: bool = False, abort_step: int = 0, use_novelty: bool = True) -> Dict[str, Any]:
         """
         Simulates one step in the MDP. Agent takes an action (code mutation),
         orchestrator runs it, and env calculates the state transition and reward.
         """
         is_novel = action_patch not in [item['patch'] for item in self.history]
 
-        reward, components = self.calculate_reward(result, is_novel=is_novel, causality_leak=causality_leak, abort_step=abort_step)
+        reward, components = self.calculate_reward(result, is_novel=is_novel, causality_leak=causality_leak, abort_step=abort_step, use_novelty=use_novelty)
 
         self.history.append({
             'job_id': result.job_id,
