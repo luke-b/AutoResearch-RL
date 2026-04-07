@@ -84,7 +84,7 @@ class AutoResearchEnv:
         logger.info(f"Reward Components: {reward_components}")
         return float(reward), reward_components
 
-    def step(self, result: EvaluationResult, action_patch: str, causality_leak: bool = False, abort_step: int = 0, use_novelty: bool = True, elapsed_time: float = 0.0, uncertainty: float = 0.0) -> Dict[str, Any]:
+    def step(self, result: EvaluationResult, action_patch: str, causality_leak: bool = False, abort_step: int = 0, use_novelty: bool = True, elapsed_time: float = 0.0, uncertainty: float = 0.0, category: str = "general") -> Dict[str, Any]:
         """
         Simulates one step in the MDP. Agent takes an action (code mutation),
         orchestrator runs it, and env calculates the state transition and reward.
@@ -100,7 +100,8 @@ class AutoResearchEnv:
             'final_bpb': result.final_bpb,
             'reward': reward,
             'components': components,
-            'remediation': getattr(result, "remediation", None)
+            'remediation': getattr(result, "remediation", None),
+            'category': category
         })
 
         if len(self.history) > 32:
