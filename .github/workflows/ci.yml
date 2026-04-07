@@ -26,3 +26,9 @@ jobs:
     - name: Run pytest
       run: |
         pytest tests/
+
+    - name: Run End-to-End Local Loop
+      env:
+        AUTORESEARCH_MODE: LOCAL
+      run: |
+        python main.py --max_iterations 1

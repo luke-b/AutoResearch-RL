@@ -9,6 +9,8 @@ from typing import Optional, Dict, Any
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("Orchestrator")
 
+import os
+
 # Optional: try to import zstandard for accurate compression simulation
 try:
     import zstandard as zstd
@@ -19,8 +21,9 @@ except ImportError:
 
 # Hard Constraints
 MAX_ARTIFACT_SIZE_BYTES = 16_000_000  # 16 MB
-MAX_TIME_SECONDS = 600                # 10 minutes
 
+AUTORESEARCH_MODE = os.environ.get("AUTORESEARCH_MODE", "CLUSTER").upper()
+MAX_TIME_SECONDS = 1800 if AUTORESEARCH_MODE == "LOCAL" else 600
 
 @dataclass
 class EvaluationResult:
