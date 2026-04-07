@@ -36,15 +36,19 @@ This document outlines the directory structure and main modules for the AutoRese
 
 **Modul A1: CPU Orchestrator (`orchestrator/orchestrator.py` & `orchestrator/docker_runner.py`)**
 Runs on a CPU machine to handle AST verification ("smoke tests"), simulate 16MB limit checks (zstd compression and heterogeneous BF16/Int6 parameter estimation), and dispatch valid candidates to isolated subprocess environments or full CUDA docker containers via the `GPUDispatcher`.
+The Orchestrator defines explicit `remediation` rules for failures (`SyntaxError`, `CapacityLimitExceeded`), while the `GPUDispatcher` implements a rigid 60-second heartbeat monitor for runtime anomalies.
 
 **Modul A2: PPO Meta-Agent (`agent/ppo_agent.py` & `agent/mdp_env.py`)**
-Serves as the decision-maker, observing state (current best code, memory of past $K=32$ experiments, constraints, runtime telemetry) to propose a structural action via OpenAI APIs. The `DiffParser` robustly applies these mutations using whitespace-insensitive matching. The MDP Environment calculates the dynamic multi-objective reward function including scalable novelty and late-abort penalties.
+Serves as the decision-maker, observing a 13D state vector (current best code, parsed hyperparameters, SOTA BPB, experiment abort history) to propose a structural action via OpenAI APIs.
+The `ASTDiffParser` robustly applies these mutations by structurally matching `ast` nodes, falling back to whitespace-insensitive matching when necessary. The agent uses batched generalized advantage estimation (GAE) with multi-epoch PPO updates.
+The MDP Environment calculates the dynamic multi-objective reward function including scalable novelty, elapsed wall-clock compute cost, and discounts observed SOTA improvements by the SPRT's projection uncertainty.
 
 **Modul A3: Power-Law SPRT Filter (`gpu_cluster/sprt.py`)**
-A mechanism to intercept the training curve early. Uses `scipy.optimize.curve_fit` to extract covariance matrices, forming strict confidence intervals to safely abort runs that statistically will not surpass the SOTA threshold in the 10-minute time constraint. Includes plateau detection.
+A mechanism to intercept the training curve early. Uses `scipy.optimize.curve_fit` to extract covariance matrices, forming strict confidence intervals to safely abort runs that statistically will not surpass the SOTA threshold in the 10-minute time constraint. Passes explicit uncertainty metrics back to the environment.
 
 **Modul B: The Golden Seed (`seed/train_gpt.py`)**
-The ultimate base state ($c_{base}$). Consolidates tunable features inside a `GPTConfig` block. Encompasses Int6 Quantization, Depth Recurrence, learned QK-Gain scaling, Sliding Window Evaluation, dynamic causality runtime assertions, and the Muon Optimizer with SWA/EMA warmdown.
+The ultimate base state ($c_{base}$). Consolidates tunable features inside a `GPTConfig` block. Encompasses Int6 Quantization, Depth Recurrence, Sliding Window Evaluation, and the Muon Optimizer with SWA/EMA warmdown.
+Dynamically asserts causality by registering forward hooks to `QKGainAttention` that prove invariant predictions when perturbing future input tokens. Enforces deterministic benchmarking via the `AUTORESEARCH_SEED` environment variable.
 
 **Causality Auditor (`auditor/causality_auditor.py`)**
-Statically and recursively checks the generated diff patches to ensure there is no future-looking (forward) test set data spillage. Complemented by runtime assertions in the seed evaluation loops.
+Statically and recursively checks the generated diff patches to ensure there is no future-looking (forward) test set data spillage (robust against nested slices, tricky indexing, and adversarial `data.roll` attacks).
