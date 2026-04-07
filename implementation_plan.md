@@ -1,6 +1,8 @@
 # AutoResearch-RL: Dual-Mode Architecture Implementation Plan
 
-This document outlines the epics and user stories required to implement the Dual-Mode Architecture (Cluster/Local) as defined in the `tech_spec_implementation.md` specification.
+*(Status: ✅ Completed)*
+
+This document outlines the epics and user stories required to implement the Dual-Mode Architecture (Cluster/Local) as defined in the `tech_spec_implementation.md` specification. All stories and epics below have been successfully executed and tested.
 
 ## Epic 1: Enable Dynamic Local Mode in the Golden Seed (`train_gpt.py`)
 **Objective:** Allow the seed to scale down parameters dynamically for local execution without destructively modifying the default `GPTConfig` parameters used for the high-compute cluster. This ensures the PPO Agent can still mutate the original base class parameters during local testing.
@@ -49,7 +51,7 @@ This document outlines the epics and user stories required to implement the Dual
 *   **Story 3.2: Implement Specific Providers**
     *   **Description:** Implement the provider interface for OpenAI, a hardcoded Mock response, and a generic local HTTP endpoint.
     *   **Acceptance Criteria:**
-        *   Implement `OpenAIProvider(api_key)` utilizing the existing `openai.ChatCompletion` logic.
+        *   Implement `OpenAIProvider(api_key)` utilizing the existing `openai.OpenAI(...).chat.completions.create` logic.
         *   Implement `MockProvider()` returning a static JSON diff.
         *   Implement `LocalModelProvider(endpoint)` utilizing `requests` to hit a local OpenAI-compatible endpoint.
 *   **Story 3.3: Refactor `PPOMetaAgent`**

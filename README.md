@@ -193,8 +193,14 @@ python3 main.py
 7. If a new State-of-the-Art (SOTA) is achieved, the script is saved to the `/artifacts/` directory and logged to `experiment_logs.jsonl`.
 
 ### 6. Experimenting & Hacking
-*   **Activate Real LLM Mutations:** Export your OpenAI API key (`export OPENAI_API_KEY="sk-..."`) before running `main.py`. The agent will seamlessly switch from mock patches to querying `gpt-4o`.
-*   **Dockerized GPU Cluster Run:** Open `main.py` and set `use_docker=True` when instantiating the `GPUDispatcher`. Ensure you have built the image via `docker build -t autoresearch-rl-node -f Dockerfile.cuda .` and have `nvidia-docker` installed.
+AutoResearch-RL supports a **Dual-Mode Architecture**, allowing you to seamlessly switch between local validation and high-compute cluster runs:
+
+*   **Local Validation Mode (Fast Iteration):** Run with `AUTORESEARCH_MODE=LOCAL python3 main.py`. This dynamically scales down the Golden Seed (`train_gpt.py`) to use fewer parameters (e.g., `n_embd=128`, 50 steps), relaxes orchestrator timeouts to 30 minutes, and disables Docker, allowing you to validate Agent policies and framework behavior on a standard CPU without destroying the base `GPTConfig` search space.
+*   **High-Compute Cluster Mode:** Run normally (default is `AUTORESEARCH_MODE=CLUSTER`). This enforces the strict 10-minute timeout and spawns runs within isolated `nvidia-docker` containers. Ensure you have built the image via `docker build -t autoresearch-rl-node -f Dockerfile.cuda .` and have `nvidia-docker` installed.
+*   **Activate Real LLM Mutations:** The agent supports modular LLM providers.
+    * To use OpenAI, simply `export OPENAI_API_KEY="sk-..."`.
+    * To use a local open-source model (e.g., via vLLM or Ollama), `export LOCAL_LLM_ENDPOINT="http://localhost:8000/v1/chat/completions"`.
+    * If neither is set, the system falls back to a safe `MockProvider` generating deterministic patches.
 *   **Analyze Logs:** Review the `experiment_logs.jsonl` file to parse iteration statistics, exact reward distributions, SPRT abort timings, and SOTA BPB drops over time.
 
 ---

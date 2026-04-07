@@ -36,10 +36,10 @@ This document outlines the directory structure and main modules for the AutoRese
 
 **Modul A1: CPU Orchestrator (`orchestrator/orchestrator.py` & `orchestrator/docker_runner.py`)**
 Runs on a CPU machine to handle AST verification ("smoke tests"), simulate 16MB limit checks (zstd compression and heterogeneous BF16/Int6 parameter estimation), and dispatch valid candidates to isolated subprocess environments or full CUDA docker containers via the `GPUDispatcher`.
-The Orchestrator defines explicit `remediation` rules for failures (`SyntaxError`, `CapacityLimitExceeded`), while the `GPUDispatcher` implements a rigid 60-second heartbeat monitor for runtime anomalies.
+It utilizes a **Dual-Mode Architecture** (`AUTORESEARCH_MODE=LOCAL|CLUSTER`) to seamlessly toggle between local development settings (relaxed timeouts, disabled Docker execution) and strict 10-minute high-compute evaluations. The Orchestrator defines explicit `remediation` rules for failures (`SyntaxError`, `CapacityLimitExceeded`), while the `GPUDispatcher` implements a rigid 60-second heartbeat monitor for runtime anomalies.
 
 **Modul A2: PPO Meta-Agent (`agent/ppo_agent.py` & `agent/mdp_env.py`)**
-Serves as the decision-maker, observing a 13D state vector (current best code, parsed hyperparameters, SOTA BPB, experiment abort history) to propose a structural action via OpenAI APIs.
+Serves as the decision-maker, observing a 13D state vector (current best code, parsed hyperparameters, SOTA BPB, experiment abort history) to propose a structural action. An extensible `LLMProvider` interface supports OpenAI APIs, local LLM endpoints, and Mock providers seamlessly.
 The `ASTDiffParser` robustly applies these mutations by structurally matching `ast` nodes, falling back to whitespace-insensitive matching when necessary. The agent uses batched generalized advantage estimation (GAE) with multi-epoch PPO updates.
 The MDP Environment calculates the dynamic multi-objective reward function including scalable novelty, elapsed wall-clock compute cost, and discounts observed SOTA improvements by the SPRT's projection uncertainty.
 
