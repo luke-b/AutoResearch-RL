@@ -198,4 +198,15 @@ python3 main.py
 *   **Analyze Logs:** Review the `experiment_logs.jsonl` file to parse iteration statistics, exact reward distributions, SPRT abort timings, and SOTA BPB drops over time.
 
 ---
+
+## ⚖️ Licensing & Intellectual Property
+
+AutoResearch-RL operates under a **Dual-Licensing Model** to protect intellectual property while fostering academic collaboration.
+
+*   **Academic & Non-Commercial Research:** The software in this repository is provided under the custom `LICENSE` file, strictly for non-commercial, academic research purposes. You may not use this software for commercial benefit, nor may you create derivative works without explicit permission.
+*   **Commercial & Enterprise Use:** Any commercial deployment, internal enterprise optimization, or creation of derivative works requires a commercial license.
+
+For more details on our IP protections and commercial offerings, please see [IP_STRATEGY.md](IP_STRATEGY.md) or contact our legal/sales team.
+
+---
 *Built for the pursuit of sub-1.0 BPB.*
