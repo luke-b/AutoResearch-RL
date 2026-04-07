@@ -14,7 +14,7 @@ from auditor.causality_auditor import check_causality_leak
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("AutoResearch-RL-Main")
 
-def log_experiment_json(iteration: int, job_id: str, patch: str, status: str, bpb: float, reward: float, components: dict, causality_leak: bool, abort_step: int, remediation: str = None):
+def log_experiment_json(iteration: int, job_id: str, patch: str, status: str, bpb: float, reward: float, components: dict, causality_leak: bool, abort_step: int, remediation: str = None, category: str = "general"):
     """Appends structured JSON logs for external analysis/dashboarding."""
     log_entry = {
         "timestamp": time.time(),
@@ -27,7 +27,8 @@ def log_experiment_json(iteration: int, job_id: str, patch: str, status: str, bp
         "causality_leak": causality_leak,
         "abort_step": abort_step,
         "patch": patch,
-        "remediation": remediation
+        "remediation": remediation,
+        "category": category
     }
     with open("experiment_logs.jsonl", "a") as f:
         f.write(json.dumps(log_entry) + "\n")
@@ -143,7 +144,9 @@ def run_perpetual_loop(max_iterations: int = 1, use_novelty: bool = True, use_sp
              uncertainty = getattr(sprt, "last_c_std_err", 0.0)
 
         applied_patch = "MOCK_PATCH_APPLIED"
-        step_info = env.step(result, action_patch=applied_patch, causality_leak=causality_leak, abort_step=abort_step, use_novelty=use_novelty, elapsed_time=elapsed_time, uncertainty=uncertainty)
+        patch_category = "hyperparameter_tuning" if "GPTConfig" in candidate_code else "architecture_mutation"
+
+        step_info = env.step(result, action_patch=applied_patch, causality_leak=causality_leak, abort_step=abort_step, use_novelty=use_novelty, elapsed_time=elapsed_time, uncertainty=uncertainty, category=patch_category)
 
         logger.info(f"Iteration Result -> Status: {result.status}, BPB: {result.final_bpb}, Reward: {step_info['reward']:.4f}")
 
@@ -153,7 +156,7 @@ def run_perpetual_loop(max_iterations: int = 1, use_novelty: bool = True, use_sp
         log_experiment_json(
             iteration, job_id, applied_patch, result.status,
             result.final_bpb, step_info['reward'], env.history[-1]['components'],
-            causality_leak, abort_step, result.remediation
+            causality_leak, abort_step, result.remediation, patch_category
         )
 
         # 8. Update SOTA and Artifacts
