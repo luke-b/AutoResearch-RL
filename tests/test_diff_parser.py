@@ -34,3 +34,32 @@ def test_ast_assignment_match():
     result = ASTDiffParser.apply_patch(code, search, replace)
     assert "mlp_expansion = 4" in result
     assert "depth = 5" in result # Unchanged
+
+def test_ast_class_replacement():
+    original_code = """
+class OldClass:
+    def method(self):
+        return 1
+
+class TargetClass:
+    def method(self):
+        return 2
+
+class OtherClass:
+    pass
+"""
+    search = """class TargetClass:
+    def method(self):
+        return 2"""
+    replace = """class TargetClass:
+    def method(self):
+        return 3
+    def new_method(self):
+        return 4"""
+
+    result = ASTDiffParser.apply_patch(original_code, search, replace)
+    assert "return 3" in result
+    assert "new_method" in result
+    assert "OldClass" in result
+    assert "return 1" in result
+    assert "OtherClass" in result
