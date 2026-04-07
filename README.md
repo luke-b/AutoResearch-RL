@@ -101,12 +101,12 @@ All foundational milestones for the AutoResearch-RL framework MVP have been succ
 | **Directory Structure & APIs** | ✅ **Complete** | Defined in `architecture.md` and `api_doc.md`. Clean separation of concerns. |
 | **CPU Orchestrator** | ✅ **Complete** | Implements AST syntax smoke tests and explicitly calculates precise `zstandard` capacity limits for heterogeneous parameter types. |
 | **SPRT Early Stopping** | ✅ **Complete** | Uses `scipy` covariance matrices for confidence intervals and implements plateau abort detection. |
-| **MDP Environment / Reward** | ✅ **Complete** | Dynamically scales novelty, penalizes late-abort compute waste, and structurally logs components. |
-| **Causality Auditor** | ✅ **Complete** | Employs both recursive AST static analysis and runtime dynamic assertion instrumentation. |
-| **Golden Seed (`train_gpt.py`)** | ✅ **Complete** | Consolidates a hyperparameter search space (`GPTConfig`) atop simulated Int6 layers, QK-Norm, Depth Recurrence, and the Muon Optimizer. |
-| **PPO Meta-Agent** | ✅ **Operational** | Integrates directly with the OpenAI API (`gpt-4o`) via `OPENAI_API_KEY` and utilizes a robust, whitespace-insensitive `DiffParser`. |
-| **GPU Dispatcher** | ✅ **Operational** | Supports an isolated Python subprocess or true `nvidia-docker` distributed execution (`use_docker=True`) via `Dockerfile.cuda`. |
-| **Perpetual Loop (`main.py`)**| ✅ **Operational** | Ties all components into a 24/7 autonomous cycle that actively writes to `experiment_logs.jsonl` and saves SOTA code artifacts. |
+| **MDP Environment / Reward** | ✅ **Complete** | Dynamically scales novelty, explicitly penalizes elapsed wall-clock compute cost, and discounts observed SOTA drops by SPRT projection uncertainty bounds. |
+| **Causality Auditor** | ✅ **Complete** | Employs recursive AST static analysis (tested against adversarial leaks) and explicit dynamic runtime assertion instrumentation. |
+| **Golden Seed (`train_gpt.py`)** | ✅ **Complete** | Consolidates a hyperparameter search space (`GPTConfig`) atop simulated Int6 layers, Depth Recurrence, and the Muon Optimizer. Exposes deterministic `AUTORESEARCH_SEED` benchmarking. |
+| **PPO Meta-Agent** | ✅ **Operational** | Features a 13D context state, batched multi-epoch PPO updates, strict patch schema validation, and an `ASTDiffParser` for structural AST diff replacement. Integrates with the OpenAI API. |
+| **GPU Dispatcher** | ✅ **Operational** | Supports an isolated Python subprocess or true `nvidia-docker` execution with integrated 60-second heartbeat monitoring. |
+| **Perpetual Loop (`main.py`)**| ✅ **Operational** | Provides CLI arguments for ablation studies, actively logs empirical patch quality metrics (syntactical validity, acceptance rate) and simulated GPU-hour cost accounting. |
 
 ---
 
