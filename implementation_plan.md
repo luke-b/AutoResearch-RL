@@ -49,11 +49,10 @@ This document outlines the epics and user stories required to implement the Dual
     *   **Acceptance Criteria:**
         *   Create an `LLMProvider` class with a `generate_patch(prompt, temperature)` method.
 *   **Story 3.2: Implement Specific Providers**
-    *   **Description:** Implement the provider interface for OpenAI, a hardcoded Mock response, and a generic local HTTP endpoint.
+    *   **Description:** Implement the provider interface for OpenAI and a hardcoded Mock response.
     *   **Acceptance Criteria:**
         *   Implement `OpenAIProvider(api_key)` utilizing the existing `openai.OpenAI(...).chat.completions.create` logic.
         *   Implement `MockProvider()` returning a static JSON diff.
-        *   Implement `LocalModelProvider(endpoint)` utilizing `requests` to hit a local OpenAI-compatible endpoint.
 *   **Story 3.3: Refactor `PPOMetaAgent`**
     *   **Description:** Modify the agent to accept a provider instance instead of tightly coupling to OpenAI.
     *   **Acceptance Criteria:**
@@ -62,7 +61,7 @@ This document outlines the epics and user stories required to implement the Dual
 *   **Story 3.4: Wire up Provider Selection in Main Loop**
     *   **Description:** Configure the correct provider in `main.py` based on available environment variables.
     *   **Acceptance Criteria:**
-        *   Check for `OPENAI_API_KEY` and `LOCAL_LLM_ENDPOINT` environment variables.
+        *   Check for `OPENAI_API_KEY` environment variable.
         *   Instantiate the appropriate provider (falling back to Mock).
         *   Inject the provider into the `PPOMetaAgent` instantiation.
 

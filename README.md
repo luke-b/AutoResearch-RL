@@ -199,8 +199,7 @@ AutoResearch-RL supports a **Dual-Mode Architecture**, allowing you to seamlessl
 *   **High-Compute Cluster Mode:** Run normally (default is `AUTORESEARCH_MODE=CLUSTER`). This enforces the strict 10-minute timeout and spawns runs within isolated `nvidia-docker` containers. Ensure you have built the image via `docker build -t autoresearch-rl-node -f Dockerfile.cuda .` and have `nvidia-docker` installed.
 *   **Activate Real LLM Mutations:** The agent supports modular LLM providers.
     * To use OpenAI, simply `export OPENAI_API_KEY="sk-..."`.
-    * To use a local open-source model (e.g., via vLLM or Ollama), `export LOCAL_LLM_ENDPOINT="http://localhost:8000/v1/chat/completions"`.
-    * If neither is set, the system falls back to a safe `MockProvider` generating deterministic patches.
+    * If not set, the system falls back to a safe `MockProvider` generating deterministic patches.
 *   **Analyze Logs:** Review the `experiment_logs.jsonl` file to parse iteration statistics, exact reward distributions, SPRT abort timings, and SOTA BPB drops over time.
 
 ---
