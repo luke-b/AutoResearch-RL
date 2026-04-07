@@ -324,42 +324,71 @@ class PPOMetaAgent:
             return current_best_code
 
     def update_policy(self, final_reward: float):
-        if not self.rollout_memory:
+        # We append the received reward to the latest memory slot
+        if self.rollout_memory:
+            self.rollout_memory[-1]["reward"] = final_reward
+
+        # Batch size for PPO updates
+        BATCH_SIZE = 8
+        if len(self.rollout_memory) < BATCH_SIZE:
+            logger.info(f"Accumulating rollouts for batched PPO ({len(self.rollout_memory)}/{BATCH_SIZE})...")
             return
 
-        if torch.isnan(torch.tensor(final_reward)):
-            logger.warning("Reward is NaN. Skipping PPO Policy Update.")
-            self.rollout_memory = []
-            return
+        logger.info("Executing Batched Trajectory PPO Update...")
 
-        rollout = self.rollout_memory[-1]
-        state = rollout["state"]
-        action = rollout["action"]
-        old_log_prob = rollout["log_prob"]
-        old_value = rollout["value"]
+        # We use a simple generalized advantage estimation-like (GAE) calculation over the batch
+        states = torch.stack([r["state"] for r in self.rollout_memory])
+        actions = torch.stack([r["action"] for r in self.rollout_memory])
+        old_log_probs = torch.stack([r["log_prob"] for r in self.rollout_memory])
+        old_values = torch.cat([r["value"] for r in self.rollout_memory])
 
-        reward_tensor = torch.tensor([final_reward], dtype=torch.float32)
-        advantage = reward_tensor - old_value.detach()
+        # Process rewards and advantages
+        rewards = []
+        for r in self.rollout_memory:
+            rew = r.get("reward", 0.0)
+            if torch.isnan(torch.tensor(rew)):
+                rew = 0.0
+            rewards.append(rew)
 
-        self.optimizer.zero_grad()
+        rewards_tensor = torch.tensor(rewards, dtype=torch.float32)
 
-        action_mean, new_value = self.policy_net(state)
-        dist = torch.distributions.Normal(action_mean, 0.1)
-        new_log_prob = dist.log_prob(action)
+        # Normalize rewards for stability
+        if rewards_tensor.std() > 0:
+            rewards_tensor = (rewards_tensor - rewards_tensor.mean()) / (rewards_tensor.std() + 1e-8)
 
-        ratio = torch.exp(new_log_prob - old_log_prob.detach())
-        surr1 = ratio * advantage
-        surr2 = torch.clamp(ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantage
-        actor_loss = -torch.min(surr1, surr2)
-        critic_loss = nn.MSELoss()(new_value, reward_tensor)
+        advantages = rewards_tensor - old_values.detach()
+        if advantages.std() > 0:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        loss = actor_loss + 0.5 * critic_loss
-        loss.backward()
+        # Multi-epoch PPO update
+        EPOCHS = 3
+        total_actor_loss = 0.0
+        total_critic_loss = 0.0
 
-        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=1.0)
-        self.optimizer.step()
+        for _ in range(EPOCHS):
+            self.optimizer.zero_grad()
 
-        logger.info(f"PPO Policy Updated. Actor Loss: {actor_loss.item():.4f}, Critic Loss: {critic_loss.item():.4f}")
+            action_means, new_values = self.policy_net(states)
+            dist = torch.distributions.Normal(action_means, 0.1)
+            new_log_probs = dist.log_prob(actions).sum(dim=-1) # Depending on action dim, sum over it
+
+            ratio = torch.exp(new_log_probs - old_log_probs.detach())
+            surr1 = ratio * advantages
+            surr2 = torch.clamp(ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
+
+            actor_loss = -torch.min(surr1, surr2).mean()
+            critic_loss = nn.MSELoss()(new_values.squeeze(), rewards_tensor)
+
+            loss = actor_loss + 0.5 * critic_loss
+            loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=1.0)
+            self.optimizer.step()
+
+            total_actor_loss += actor_loss.item()
+            total_critic_loss += critic_loss.item()
+
+        logger.info(f"PPO Batched Policy Updated. Avg Actor Loss: {total_actor_loss/EPOCHS:.4f}, Avg Critic Loss: {total_critic_loss/EPOCHS:.4f}")
         self.rollout_memory = []
 
 if __name__ == "__main__":

@@ -134,11 +134,16 @@ def run_perpetual_loop(max_iterations: int = 1, use_novelty: bool = True, use_sp
 
         # 6. Environment Step (Calculate Reward & Update Memory)
         abort_step = 0
+        uncertainty = 0.0
         if result.status == "ABORTED" and result.error_message == "SPRT_EARLY_STOPPING" and sprt:
              abort_step = len(sprt.step_history) * 10
 
+        # Extract uncertainty from SPRT filter if completed successfully to bound the reward
+        if result.status == "COMPLETED" and sprt and hasattr(sprt, "last_c_std_err"):
+             uncertainty = getattr(sprt, "last_c_std_err", 0.0)
+
         applied_patch = "MOCK_PATCH_APPLIED"
-        step_info = env.step(result, action_patch=applied_patch, causality_leak=causality_leak, abort_step=abort_step, use_novelty=use_novelty)
+        step_info = env.step(result, action_patch=applied_patch, causality_leak=causality_leak, abort_step=abort_step, use_novelty=use_novelty, elapsed_time=elapsed_time, uncertainty=uncertainty)
 
         logger.info(f"Iteration Result -> Status: {result.status}, BPB: {result.final_bpb}, Reward: {step_info['reward']:.4f}")
 
