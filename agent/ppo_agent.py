@@ -47,12 +47,23 @@ class ASTDiffParser:
                 target_name = search_ast.body[0].name
                 for node in original_ast.body:
                     if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name == target_name:
-                        # Replace the whole node in the source lines
+                        # Before replacing, verify that the found node actually matches the search block's content
                         start_line = node.lineno - 1
                         end_line = node.end_lineno
                         lines = original_code.splitlines()
-                        new_lines = lines[:start_line] + replace_block.splitlines() + lines[end_line:]
-                        return "\n".join(new_lines)
+                        original_node_text = "\n".join(lines[start_line:end_line])
+
+                        # Verify using robust whitespace-insensitive match to ensure we are replacing the right code
+                        search_lines_norm = [line.strip() for line in search_block.splitlines() if line.strip()]
+                        orig_node_lines_norm = [line.strip() for line in original_node_text.splitlines() if line.strip()]
+
+                        # Only proceed if the original node matches the search block structurally
+                        # This avoids replacing a class when the LLM hallucinated its current state
+                        if search_lines_norm == orig_node_lines_norm:
+                            new_lines = lines[:start_line] + replace_block.splitlines() + lines[end_line:]
+                            return "\n".join(new_lines)
+                        else:
+                            raise ValueError(f"AST structural match found node {target_name}, but its content does not match the search block.")
 
             # More general AST structure matching could be implemented here,
             # but standard AST modules don't provide easy arbitrary block replacement
@@ -211,7 +222,7 @@ class PPOMetaAgent:
             abort_freq = len(aborts) / float(max(1, len(env_history)))
 
             if aborts:
-                avg_abort_step = sum([e.get("reward_components", {}).get("sprt_abort_penalty", 0.0) for e in aborts]) / len(aborts)
+                avg_abort_step = sum([e.get("components", {}).get("sprt_abort_penalty", 0.0) for e in aborts]) / len(aborts)
 
             # Reward Trend
             recent_rewards = [e.get("reward", 0.0) for e in env_history[-3:]]
@@ -222,7 +233,7 @@ class PPOMetaAgent:
             current_sota, float(iteration), oom_flag, float(memory_size),
             abort_freq, delta_trend, lora_rank_val, mlp_exp_val,
             depth_loops_val, qk_gain_init_val, muon_lr_val, avg_abort_step,
-            float(len(env_history) > 0 and "CausalityLeak" in [e.get("error_message", "") for e in env_history[-5:]])
+            float(len(env_history) > 0 and any("causality" in e.get("components", {}) for e in env_history[-5:]))
         ]
         return torch.tensor(state_vec, dtype=torch.float32)
 
