@@ -4,7 +4,7 @@ import os
 import shutil
 import json
 
-from orchestrator.orchestrator import Orchestrator
+from orchestrator.orchestrator import Orchestrator, MAX_TIME_SECONDS
 from orchestrator.docker_runner import GPUDispatcher
 from agent.ppo_agent import PPOMetaAgent
 from agent.mdp_env import AutoResearchEnv
@@ -13,6 +13,8 @@ from auditor.causality_auditor import check_causality_leak
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("AutoResearch-RL-Main")
+
+AUTORESEARCH_MODE = os.environ.get("AUTORESEARCH_MODE", "CLUSTER").upper()
 
 def log_experiment_json(iteration: int, job_id: str, patch: str, status: str, bpb: float, reward: float, components: dict, causality_leak: bool, abort_step: int, remediation: str = None, category: str = "general"):
     """Appends structured JSON logs for external analysis/dashboarding."""
@@ -123,7 +125,8 @@ def run_perpetual_loop(max_iterations: int = 1, use_novelty: bool = True, use_sp
                         if not use_sprt: return False
                         return sprt.update_and_check(step, loss)
 
-                    dispatcher = GPUDispatcher(sprt_callback=sprt_callback, time_limit_sec=600)
+                    use_docker = False if AUTORESEARCH_MODE == "LOCAL" else True
+                    dispatcher = GPUDispatcher(use_docker=use_docker, sprt_callback=sprt_callback, time_limit_sec=MAX_TIME_SECONDS)
 
                     result = dispatcher.dispatch(job_id, candidate_code, num_parameters=12_000_000)
 
