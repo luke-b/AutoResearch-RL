@@ -51,7 +51,7 @@ This document outlines the epics and user stories required to implement the Dual
 *   **Story 3.2: Implement Specific Providers**
     *   **Description:** Implement the provider interface for OpenAI, a hardcoded Mock response, and a generic local HTTP endpoint.
     *   **Acceptance Criteria:**
-        *   Implement `OpenAIProvider(api_key)` utilizing the existing `openai.ChatCompletion` logic.
+        *   Implement `OpenAIProvider(api_key)` utilizing the existing `openai.OpenAI(...).chat.completions.create` logic.
         *   Implement `MockProvider()` returning a static JSON diff.
         *   Implement `LocalModelProvider(endpoint)` utilizing `requests` to hit a local OpenAI-compatible endpoint.
 *   **Story 3.3: Refactor `PPOMetaAgent`**
