@@ -36,8 +36,8 @@ def test_end_to_end_loop(monkeypatch, caplog):
     # Check if simulation completed naturally
     assert "Simulation Limit Reached. Terminating AutoResearch-RL Loop." in caplog.text
 
-    # Check PPO updates occurred
-    assert "PPO Policy Updated" in caplog.text
+    # Check PPO updates occurred (Now it accumulates instead of updating every step)
+    assert "Accumulating rollouts for batched PPO" in caplog.text
 
     # Check JSON structured logging
     assert os.path.exists("experiment_logs.jsonl")

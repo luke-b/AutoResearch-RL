@@ -70,6 +70,9 @@ class SPRTFilter:
             perr = np.sqrt(np.diag(pcov))
             c_std_err = perr[2]
 
+            # Store it so the orchestrator can penalize uncertainty
+            self.last_c_std_err = c_std_err
+
             # Calculate the lower bound of our projection based on confidence level
             # (Assuming normal distribution of error, 95% is approx 1.96 standard errors)
             # If the best-case (lower bound) is still worse than SOTA + 5% margin, we abort
