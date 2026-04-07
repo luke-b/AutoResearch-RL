@@ -49,6 +49,9 @@ The optimization target is to minimize validation BPB under strict constraints. 
 with reward shaped to encode quality improvements and strict penalties for invalid or non-causal behaviors.
 
 \section{System Architecture}
+
+The system partitions responsibilities into two logical domains: a lightweight Orchestration / Meta-Agent layer and a compute-intensive Evaluation layer. It utilizes a Dual-Mode Architecture to scale between fast, low-cost local validation (`AUTORESEARCH_MODE=LOCAL`) and isolated high-compute docker cluster execution.
+
 \subsection{End-to-End Control Path}
 One iteration follows:
 \begin{enumerate}[leftmargin=1.5em]
