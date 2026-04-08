@@ -142,6 +142,7 @@ All foundational milestones for the AutoResearch-RL framework MVP have been succ
 | **PPO Meta-Agent** | ✅ **Operational** | Features a 13D context state, batched multi-epoch PPO updates, strict patch schema validation, and an `ASTDiffParser` for structural AST diff replacement. Integrates with the OpenAI API. |
 | **GPU Dispatcher** | ✅ **Operational** | Supports an isolated Python subprocess or true `nvidia-docker` execution with integrated 60-second heartbeat monitoring. |
 | **Perpetual Loop (`main.py`)**| ✅ **Operational** | Provides CLI arguments for ablation studies, actively logs empirical patch quality metrics (syntactical validity, acceptance rate) and simulated GPU-hour cost accounting. |
+| **Codex Agent Environment** | ✅ **Operational** | A dedicated `/codex_agent` workspace containing context, `.codex` configuration, and wrapper scripts to run the framework fully autonomously via the OpenAI Codex CLI or local OSS models. |
 
 ---
 
@@ -177,8 +178,13 @@ python3 auditor/causality_auditor.py
 ```
 
 ### 5. Running the Perpetual Agent Loop
-To start the continuous AutoResearch cycle, simply execute `main.py`.
+To start the continuous AutoResearch cycle, you can use our dedicated Codex Agent wrapper script, which handles setup and testing automatically:
 
+```bash
+./codex_agent/run_autoresearch.sh
+```
+
+Alternatively, execute `main.py` directly from the root:
 ```bash
 python3 main.py
 ```
