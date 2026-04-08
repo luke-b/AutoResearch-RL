@@ -11,9 +11,13 @@ echo "Running tests..."
 ./codex_agent/ci.sh
 
 echo "Loading environment variables..."
-if [ -f codex_agent/.env.example ]; then
+set -a
+if [ -f codex_agent/.env ]; then
+  source codex_agent/.env
+elif [ -f codex_agent/.env.example ]; then
   source codex_agent/.env.example
 fi
+set +a
 
 # Fallback values if not provided in .env
 MAX_ITERATIONS=${MAX_ITERATIONS:-1}
