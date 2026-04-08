@@ -1,0 +1,8 @@
+model = "gpt-5.3-codex"
+reasoning_effort = "high"
+default_approvals = "sandbox"
+use_oss = true
+mcp_servers = []
+
+[oss]
+endpoint = "http://localhost:11434/api/generate"
