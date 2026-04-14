@@ -63,3 +63,37 @@ class OtherClass:
     assert "OldClass" in result
     assert "return 1" in result
     assert "OtherClass" in result
+
+
+def test_parse_llm_json_search_replace():
+    llm_response = '```json\n[{"search": "mlp_expansion = 3", "replace": "mlp_expansion = 4"}]\n```'
+    patches = ASTDiffParser.parse_llm_json(llm_response)
+    assert patches[0]['search'] == 'mlp_expansion = 3'
+    assert patches[0]['replace'] == 'mlp_expansion = 4'
+
+
+def test_parse_llm_json_json_patch():
+    llm_response = '```json\n[{"op": "replace", "path": "mlp_expansion", "value": 4}]\n```'
+    patches = ASTDiffParser.parse_llm_json(llm_response)
+    assert patches[0]['op'] == 'replace'
+    assert patches[0]['path'] == 'mlp_expansion'
+    assert patches[0]['value'] == 4
+
+
+def test_parse_llm_json_operation_field():
+    """Test that 'operation' field is normalized to 'op'."""
+    llm_response = '```json\n[{"operation": "replace", "path": "mlp_expansion", "value": 4, "comment": "test"}]\n```'
+    patches = ASTDiffParser.parse_llm_json(llm_response)
+    assert patches[0]['op'] == 'replace'
+    assert patches[0]['path'] == 'mlp_expansion'
+    assert patches[0]['value'] == 4
+    # original 'operation' field is preserved in the patch dict
+    assert patches[0]['operation'] == 'replace'
+
+
+def test_apply_json_patch_replace_assignment():
+    original_code = "mlp_expansion = 3\nother = 5\n"
+    patch = {"op": "replace", "path": "mlp_expansion", "value": 4}
+    result = ASTDiffParser._apply_json_patch(original_code, patch)
+    assert "mlp_expansion = 4" in result
+    assert "other = 5" in result

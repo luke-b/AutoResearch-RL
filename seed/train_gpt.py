@@ -215,14 +215,10 @@ class AveragedModel(nn.Module):
 # Main Execution / Training Loop
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
-    import os
-
     # Determinism / Benchmarking
-    if "AUTORESEARCH_SEED" in os.environ:
-        seed_val = int(os.environ["AUTORESEARCH_SEED"])
-        torch.manual_seed(seed_val)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed_val)
+    torch.manual_seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(42)
 
     # Ensure logs don't mess up JSON stdout for the dispatcher
     logging.basicConfig(level=logging.ERROR)

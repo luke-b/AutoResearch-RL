@@ -15,3 +15,14 @@ venv/
 *.fls
 *.fdb_latexmk
 *.synctex.gz
+
+# Experimental data (keep but don't version control large logs)
+experiments/*/data/**/*.jsonl
+experiments/*/analysis/plots/*.png
+experiments/*/analysis/plots/*.pdf
+experiments/archived/
+
+# Runtime artifacts
+artifacts/
+logs/
+

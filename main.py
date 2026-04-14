@@ -16,7 +16,7 @@ logger = logging.getLogger("AutoResearch-RL-Main")
 
 AUTORESEARCH_MODE = os.environ.get("AUTORESEARCH_MODE", "CLUSTER").upper()
 
-def log_experiment_json(iteration: int, job_id: str, patch: str, status: str, bpb: float, reward: float, components: dict, causality_leak: bool, abort_step: int, remediation: str = None, category: str = "general"):
+def log_experiment_json(iteration: int, job_id: str, patch: str, status: str, bpb: float, reward: float, components: dict, causality_leak: bool, abort_step: int, remediation: str = None, category: str = "general", log_file: str = "experiment_logs.jsonl"):
     """Appends structured JSON logs for external analysis/dashboarding."""
     log_entry = {
         "timestamp": time.time(),
@@ -32,7 +32,7 @@ def log_experiment_json(iteration: int, job_id: str, patch: str, status: str, bp
         "remediation": remediation,
         "category": category
     }
-    with open("experiment_logs.jsonl", "a") as f:
+    with open(log_file, "a") as f:
         f.write(json.dumps(log_entry) + "\n")
 
 def save_artifact(source_code: str, bpb: float, step: int):
@@ -48,9 +48,21 @@ def save_artifact(source_code: str, bpb: float, step: int):
 
 import argparse
 
-def run_perpetual_loop(max_iterations: int = 1, use_novelty: bool = True, use_sprt: bool = True, use_auditor: bool = True):
+def run_perpetual_loop(max_iterations: int = 1, use_novelty: bool = True, use_sprt: bool = True, use_auditor: bool = True, llm_mode: str = "hf", experiment_id: str = "", treatment: str = "", run: int = 0):
     logger.info(f"🚀 Starting AutoResearch-RL Perpetual Loop (Max Iterations: {max_iterations})")
     logger.info(f"Ablation settings -> Novelty: {use_novelty}, SPRT: {use_sprt}, Auditor: {use_auditor}")
+    if experiment_id:
+        logger.info(f"Experiment: {experiment_id} | Treatment: {treatment} | Run: {run}")
+    logger.info(f"LLM Mode: {llm_mode}")
+
+    # Setup experiment logging directory
+    if experiment_id and treatment:
+        exp_log_dir = f"experiments/{experiment_id}/data/{treatment}/run_{run:03d}"
+        os.makedirs(exp_log_dir, exist_ok=True)
+        exp_log_file = f"{exp_log_dir}/experiment_logs.jsonl"
+        logger.info(f"Logging to: {exp_log_file}")
+    else:
+        exp_log_file = "experiment_logs.jsonl"
 
     # Quality Metrics & Cost Accounting
     metrics = {
@@ -72,6 +84,11 @@ def run_perpetual_loop(max_iterations: int = 1, use_novelty: bool = True, use_sp
 
     logger.info("Loaded Golden Seed.")
 
+    # Import random patch generator for baseline mode
+    if llm_mode == "none":
+        from utils.random_patch_generator import RandomPatchGenerator
+        logger.info("Baseline mode: Using random patch generator")
+
     iteration = 1
 
     while iteration <= max_iterations:
@@ -85,7 +102,21 @@ def run_perpetual_loop(max_iterations: int = 1, use_novelty: bool = True, use_sp
         }
 
         # 2. Agent Action Phase (Policy Evaluation -> Action)
-        candidate_code = agent.generate_action(current_best_code, env.history, telemetry)
+        if llm_mode == "none":
+            # Baseline: Use random patch generator
+            from utils.random_patch_generator import RandomPatchGenerator
+            from agent.ppo_agent import ASTDiffParser
+            
+            patch = RandomPatchGenerator.generate_random_patch(current_best_code)
+            try:
+                candidate_code = ASTDiffParser.apply_patch(current_best_code, patch["search"], patch["replace"])
+                logger.info(f"Random patch applied: {patch['search'][:30]}... → {patch['replace'][:30]}...")
+            except Exception as e:
+                logger.warning(f"Failed to apply random patch: {e}")
+                candidate_code = current_best_code
+        else:
+            # HF Router mode: Use LLM
+            candidate_code = agent.generate_action(current_best_code, env.history, telemetry)
 
         # 3. Security Audit (Causality)
         if use_auditor:
@@ -159,7 +190,8 @@ def run_perpetual_loop(max_iterations: int = 1, use_novelty: bool = True, use_sp
         log_experiment_json(
             iteration, job_id, applied_patch, result.status,
             result.final_bpb, step_info['reward'], env.history[-1]['components'],
-            causality_leak, abort_step, result.remediation, patch_category
+            causality_leak, abort_step, result.remediation, patch_category,
+            log_file=exp_log_file
         )
 
         # 8. Update SOTA and Artifacts
@@ -199,11 +231,20 @@ if __name__ == "__main__":
     parser.add_argument("--no_novelty", action="store_true", help="Disable novelty bonus")
     parser.add_argument("--no_sprt", action="store_true", help="Disable SPRT early stopping")
     parser.add_argument("--no_auditor", action="store_true", help="Disable causality auditor")
+    parser.add_argument("--llm_mode", type=str, default="hf", choices=["hf", "none"], 
+                        help="LLM mode: 'hf' for HF router, 'none' for random baseline")
+    parser.add_argument("--experiment_id", type=str, default="", help="Experiment ID for tracking")
+    parser.add_argument("--treatment", type=str, default="", help="Treatment: baseline or hf_router")
+    parser.add_argument("--run", type=int, default=0, help="Run number (for multi-run experiments)")
     args = parser.parse_args()
 
     run_perpetual_loop(
         max_iterations=args.max_iterations,
         use_novelty=not args.no_novelty,
         use_sprt=not args.no_sprt,
-        use_auditor=not args.no_auditor
+        use_auditor=not args.no_auditor,
+        llm_mode=args.llm_mode,
+        experiment_id=args.experiment_id,
+        treatment=args.treatment,
+        run=args.run,
     )

@@ -1,0 +1,3 @@
+# Experimental data files (experiment_logs.jsonl) will be stored here.
+# This directory is gitignored to avoid storing large log files in version control.
+# See ../.gitignore for details.

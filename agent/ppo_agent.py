@@ -147,22 +147,136 @@ class ASTDiffParser:
             match = re.search(r'```json\s*(.*?)\s*```', llm_response, re.DOTALL)
             if match:
                 json_str = match.group(1)
+            else:
+                # Try to extract the first JSON-like object/array if the response contains extra text.
+                start_positions = [pos for pos in (json_str.find('['), json_str.find('{')) if pos != -1]
+                if start_positions:
+                    json_str = json_str[min(start_positions):]
+
+            # Try to clean up common JSON issues (trailing commas, unescaped quotes in strings)
+            # Remove trailing commas before closing brackets
+            json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
 
             patches = json.loads(json_str)
             if not isinstance(patches, list):
                 patches = [patches]
 
-            # Schema validation
+            # Schema validation and normalization
             for patch in patches:
-                if not isinstance(patch, dict) or 'search' not in patch or 'replace' not in patch:
-                    raise ValueError("Patch missing 'search' or 'replace' keys.")
-                if not isinstance(patch['search'], str) or not isinstance(patch['replace'], str):
-                    raise ValueError("Patch 'search' and 'replace' values must be strings.")
+                if not isinstance(patch, dict):
+                    raise ValueError("Patch must be a JSON object.")
+
+                if 'search' in patch and 'replace' in patch:
+                    if not isinstance(patch['search'], str) or not isinstance(patch['replace'], str):
+                        raise ValueError("Patch 'search' and 'replace' values must be strings.")
+                elif patch.get('op') in ('replace', 'add', 'remove') or patch.get('operation') in ('replace', 'add', 'remove'):
+                    # Normalize 'operation' to 'op' for consistency
+                    if 'operation' in patch and 'op' not in patch:
+                        patch['op'] = patch['operation']
+                    if 'path' not in patch:
+                        raise ValueError("Patch missing required 'path' field.")
+                    # 'value' is optional for remove operations
+                    if patch.get('op') != 'remove' and 'value' not in patch:
+                        raise ValueError("Patch missing required 'value' field.")
+                else:
+                    raise ValueError("Patch missing 'search'/'replace' or 'op'/'operation'/'path'/'value' keys.")
 
             return patches
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse LLM patch output: {e}")
             raise ValueError("Invalid JSON patch format")
+
+    @staticmethod
+    def _apply_json_patch(original_code: str, patch: Dict[str, Any]) -> str:
+        if patch.get("op") != "replace":
+            raise ValueError(f"Unsupported JSON patch op: {patch.get('op')}")
+
+        path = patch.get("path")
+        value = patch.get("value")
+        if not isinstance(path, str):
+            raise ValueError("Patch path must be a string.")
+
+        # Extract the variable/attribute name from the path.
+        # Paths can be like: "mlp_expansion", "GPTConfig().mlp_expansion", "src/GPTConfig().mlp_expansion"
+        # We want the last identifier component
+        import re as regex
+        match = regex.search(r'(\w+)\s*$', path)
+        if not match:
+            raise ValueError(f"Could not extract identifier from path: {path}")
+        target = match.group(1)
+
+        # If value is scalar, replace assignment in the current module/class context
+        if not isinstance(value, str):
+            # Attempt to replace a simple assignment or constant value
+            return ASTDiffParser._replace_assignment(original_code, target, value)
+
+        # For string values, attempt to replace a function or body block.
+        if target.isidentifier():
+            # If path refers to a method or function, replace that body
+            return ASTDiffParser._replace_function_or_assignment(original_code, target, value)
+
+        raise ValueError("Unable to apply JSON patch to the provided path/value.")
+
+
+    @staticmethod
+    def _replace_assignment(original_code: str, target: str, new_value: Any) -> str:
+        try:
+            tree = ast.parse(original_code)
+            lines = original_code.splitlines()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Assign) and len(node.targets) == 1 and hasattr(node.targets[0], "id"):
+                    if node.targets[0].id == target:
+                        # Preserve indentation from the original line
+                        old_line = lines[node.lineno - 1]
+                        leading_whitespace = len(old_line) - len(old_line.lstrip())
+                        indent = old_line[:leading_whitespace]
+                        value_text = repr(new_value) if not isinstance(new_value, str) else f'"{new_value}"'
+                        lines[node.lineno - 1] = f"{indent}{target} = {value_text}"
+                        return "\n".join(lines)
+        except Exception:
+            pass
+        raise ValueError(f"Could not replace assignment for target '{target}'")
+
+    @staticmethod
+    def _replace_function_or_assignment(original_code: str, path: str, new_body: str) -> str:
+        tree = ast.parse(original_code)
+        lines = original_code.splitlines()
+        path_parts = path.split(".")
+
+        if len(path_parts) >= 2:
+            # Class method replacement like src/ClassName.method
+            class_name = path_parts[-2]
+            func_name = path_parts[-1]
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef) and node.name == class_name:
+                    for child in node.body:
+                        if isinstance(child, ast.FunctionDef) and child.name == func_name:
+                            return ASTDiffParser._replace_function_body(lines, child, new_body)
+
+        # Otherwise, try top-level function replacement
+        func_name = path_parts[-1]
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == func_name:
+                return ASTDiffParser._replace_function_body(lines, node, new_body)
+
+        # If no function found, fallback to assignment replacement by target name
+        return ASTDiffParser._replace_assignment(original_code, func_name, new_body)
+
+    @staticmethod
+    def _replace_function_body(lines: List[str], node: ast.FunctionDef, new_body: str) -> str:
+        indent = " " * (node.col_offset + 4)
+        body_lines = [line.rstrip() for line in new_body.splitlines()]
+        # Dedent the incoming body if it contains leading spaces
+        import textwrap
+        body_lines = [indent + line for line in textwrap.dedent("\n".join(body_lines)).splitlines()]
+        if not body_lines:
+            body_lines = [indent + "pass"]
+
+        start = node.lineno
+        end = node.end_lineno
+        new_function = [lines[node.lineno - 1]] + body_lines
+        result = lines[: start] + new_function + lines[end:]
+        return "\n".join(result)
 
 
 class PolicyValueNetwork(nn.Module):
@@ -191,14 +305,18 @@ class PolicyValueNetwork(nn.Module):
 class PPOMetaAgent:
     def __init__(self, system_prompt: str = "Minimize BPB under 16MB. Modify architecture hyperparameters within GPTConfig like mlp_expansion, depth_loops, lora_rank, qk_gain_init, and muon_lr."):
         self.system_prompt = system_prompt
-        self.api_key = os.environ.get("OPENAI_API_KEY")
+        self.hf_token = os.environ.get("HF_TOKEN")
+        self.model_id = "Qwen/Qwen3-4B-Instruct-2507:nscale"  # Paid inference model
 
-        if self.api_key:
-            logger.info("OpenAI API Key found. Real LLM integration activated.")
-            import openai
-            self.client = openai.OpenAI(api_key=self.api_key)
+        if self.hf_token:
+            logger.info("HF_TOKEN found. Hugging Face Router API activated.")
+            from openai import OpenAI
+            self.client = OpenAI(
+                base_url="https://router.huggingface.co/v1",
+                api_key=self.hf_token,
+            )
         else:
-            logger.info("No OpenAI API Key found. Operating in MOCK mode.")
+            logger.info("No HF_TOKEN found. Operating in MOCK mode.")
             self.client = None
 
         self.state_dim = 13
@@ -292,7 +410,7 @@ class PPOMetaAgent:
 
         prompt += "\n### TELEMETRY & DIAGNOSTICS\n"
         prompt += json.dumps(telemetry, indent=2)
-        prompt += "\n\n### YOUR TASK\nGenerate a JSON array of search/replace patches to mutate the current best code to improve BPB. Use the ontology of past successes and failures to inform your next structured proposal."
+        prompt += "\n\n### YOUR TASK\nGenerate a JSON array of search/replace patches to mutate the current best code to improve BPB. Use the ontology of past successes and failures to inform your next structured proposal. Output the JSON in a code block like ```json\n[...]\n```"
         return prompt
 
     def generate_action(self, current_best_code: str, history: List[Dict[str, Any]], telemetry: Dict[str, Any]) -> str:
@@ -318,17 +436,19 @@ class PPOMetaAgent:
         llm_response = ""
         if self.client:
             try:
-                response = self.client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": "You are a code-mutating PPO agent optimized to output JSON diff patches."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=llm_temperature
+                messages = [
+                    {"role": "system", "content": "You are a code-mutating PPO agent optimized to output JSON diff patches."},
+                    {"role": "user", "content": prompt}
+                ]
+                completion = self.client.chat.completions.create(
+                    model=self.model_id,
+                    messages=messages,
+                    temperature=llm_temperature,
+                    max_tokens=1000
                 )
-                llm_response = response.choices[0].message.content
+                llm_response = completion.choices[0].message.content
             except Exception as e:
-                logger.error(f"OpenAI API call failed: {e}")
+                logger.error(f"Hugging Face Router API call failed: {e}")
                 return current_best_code
         else:
             llm_response = '''
@@ -346,7 +466,12 @@ class PPOMetaAgent:
             patches = ASTDiffParser.parse_llm_json(llm_response)
             new_code = current_best_code
             for patch in patches:
-                new_code = ASTDiffParser.apply_patch(new_code, patch["search"], patch["replace"])
+                if "search" in patch and "replace" in patch:
+                    new_code = ASTDiffParser.apply_patch(new_code, patch["search"], patch["replace"])
+                elif patch.get("op") == "replace" and "path" in patch and "value" in patch:
+                    new_code = ASTDiffParser._apply_json_patch(new_code, patch)
+                else:
+                    raise ValueError("Patch missing required keys.")
 
             # AST-preserving transform validation
             tree = ast.parse(new_code)
