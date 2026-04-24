@@ -173,9 +173,11 @@ def run_perpetual_loop(max_iterations: int = 1, use_novelty: bool = True, use_sp
         if result.status == "ABORTED" and result.error_message == "SPRT_EARLY_STOPPING" and sprt:
              abort_step = len(sprt.step_history) * 10
 
-        # Extract uncertainty from SPRT filter if completed successfully to bound the reward
+        # Extract uncertainty from SPRT filter if completed successfully to bound the reward.
+        # Clamp to a maximum of 5.0 BPB units as a defense-in-depth guard against any
+        # residual numerical instability in the curve fit covariance.
         if result.status == "COMPLETED" and sprt and hasattr(sprt, "last_c_std_err"):
-             uncertainty = getattr(sprt, "last_c_std_err", 0.0)
+             uncertainty = min(getattr(sprt, "last_c_std_err", 0.0), 5.0)
 
         applied_patch = "MOCK_PATCH_APPLIED"
         patch_category = "hyperparameter_tuning" if "GPTConfig" in candidate_code else "architecture_mutation"
