@@ -39,6 +39,15 @@ class SPRTFilter:
         if len(self.loss_history) < 5:
             return False
 
+        # Divergence Detection: abort if loss is consistently increasing over the last 5 checkpoints
+        recent = self.loss_history[-5:]
+        if all(recent[i] < recent[i + 1] for i in range(len(recent) - 1)):
+            logger.info(
+                f"SPRT ABORT: Diverging loss detected at step {current_step}. "
+                f"Last 5 losses: {[f'{l:.4f}' for l in recent]}"
+            )
+            return True
+
         # Plateau Detection (If loss hasn't improved in 5 checks, kill it)
         if len(self.loss_history) > 10:
             recent_losses = self.loss_history[-5:]
@@ -69,6 +78,18 @@ class SPRTFilter:
             # This provides a basic confidence interval around the projection
             perr = np.sqrt(np.diag(pcov))
             c_std_err = perr[2]
+
+            # Guard against ill-conditioned fits where the covariance matrix explodes.
+            # When curve_fit cannot reliably identify the asymptote (e.g. diverging loss),
+            # c_std_err can reach millions, making the projection meaningless.
+            # In that case reset to 0 so the reward isn't poisoned and skip projection abort.
+            if not np.isfinite(c_std_err) or c_std_err > 1e4:
+                logger.debug(
+                    f"Curve fit covariance is ill-conditioned (c_std_err={c_std_err:.2e}); "
+                    f"ignoring uncertainty and projection."
+                )
+                self.last_c_std_err = 0.0
+                return False
 
             # Store it so the orchestrator can penalize uncertainty
             self.last_c_std_err = c_std_err
