@@ -41,7 +41,7 @@ class SPRTFilter:
 
         # Divergence Detection: abort if loss is consistently increasing over the last 5 checkpoints
         recent = self.loss_history[-5:]
-        if all(recent[i] < recent[i + 1] for i in range(len(recent) - 1)):
+        if all(recent[i] < recent[i + 1] for i in range(4)):
             logger.info(
                 f"SPRT ABORT: Diverging loss detected at step {current_step}. "
                 f"Last 5 losses: {[f'{l:.4f}' for l in recent]}"
